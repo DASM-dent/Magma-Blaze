@@ -128,7 +128,7 @@ export default function CheckoutPage() {
           <div className="space-y-3">
             {cart.items.map((item) => (
               <div key={item.id} className="flex justify-between gap-4 border-b border-white/5 pb-3 text-sm">
-                <span className="text-white/70">{item.product.name} x {item.quantity}</span>
+                <span className="text-white/70">{item.product.name}{item.variant?.name ? ` · ${item.variant.name}` : ''} x {item.quantity}</span>
                 <span className="text-white">{symbol} {(item.unitPrice * item.quantity).toLocaleString(country === 'US' ? 'en-US' : 'es-DO')}</span>
               </div>
             ))}

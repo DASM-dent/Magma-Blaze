@@ -10,6 +10,7 @@ type CartAvailabilityItem = {
   };
   quantity: number;
   unitPrice?: number;
+  variant?: { name?: string | null };
 };
 
 export const STORE_WHATSAPP_NUMBER = "18492757807";
@@ -50,7 +51,8 @@ export function cartAvailabilityWhatsappUrl(
   const lines = items.map((item) => {
     const productUrl = getProductUrl(item.product.slug);
     const price = item.unitPrice ? ` - ${symbol} ${(item.unitPrice * item.quantity).toLocaleString(language === "en" ? "en-US" : "es-DO")}` : "";
-    return `- ${item.product.name} x ${item.quantity}${price}${productUrl ? ` (${productUrl})` : ""}`;
+    const variant = item.variant?.name ? ` (${language === "en" ? "variant" : "variante"}: ${item.variant.name})` : "";
+    return `- ${item.product.name}${variant} x ${item.quantity}${price}${productUrl ? ` (${productUrl})` : ""}`;
   });
 
   const total = `${symbol} ${subtotal.toLocaleString(language === "en" ? "en-US" : "es-DO")}`;
@@ -81,7 +83,8 @@ export function cartOrderWhatsappUrl(
     const productUrl = getProductUrl(item.product.slug);
     const lineTotal = item.unitPrice ? item.unitPrice * item.quantity : 0;
     const price = item.unitPrice ? ` - ${symbol} ${lineTotal.toLocaleString(locale)}` : "";
-    return `${index + 1}. ${item.product.name} x ${item.quantity}${price}${productUrl ? `\n   ${productUrl}` : ""}`;
+    const variant = item.variant?.name ? ` (${language === "en" ? "variant" : "variante"}: ${item.variant.name})` : "";
+    return `${index + 1}. ${item.product.name}${variant} x ${item.quantity}${price}${productUrl ? `\n   ${productUrl}` : ""}`;
   });
 
   const total = `${symbol} ${subtotal.toLocaleString(locale)}`;

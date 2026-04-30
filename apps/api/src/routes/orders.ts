@@ -7,6 +7,11 @@ const router = Router();
 
 const unitToCents = (v:number)=>Math.round(Number(v||0)*100);
 const centsToUnit = (v:number|null|undefined)=>Math.round((v??0)/100);
+function variantDisplayName(variant:any){
+  const explicit=String(variant?.name||'').trim();
+  const parts=[variant?.color,variant?.size,variant?.model,variant?.lens].map(value=>String(value||'').trim()).filter(Boolean);
+  return explicit||parts.join(' / ')||'Variante';
+}
 const checkoutSchema = z.object({
   items: z.array(z.object({ productId:z.string(), variantId:z.string().optional().nullable(), quantity:z.number().int().positive() })).min(1),
   country: z.enum(['RD','US']),
@@ -16,7 +21,7 @@ const checkoutSchema = z.object({
   promoCode: z.string().optional(),
   paymentMethodId: z.string().optional(),
 });
-function toOrder(o:any){ return {...o, subtotal:centsToUnit(o.subtotal), discount:centsToUnit(o.discount), shipping:centsToUnit(o.shipping), total:centsToUnit(o.total), items:o.items?.map((i:any)=>({...i,price:centsToUnit(i.price),variant:i.variant?{id:i.variant.id,name:i.variant.name,sku:i.variant.sku}:null})), events:o.events?.map((event:any)=>({...event, actor:event.user ? { id:event.user.id, name:event.user.name, role:event.user.role } : null }))}; }
+function toOrder(o:any){ return {...o, subtotal:centsToUnit(o.subtotal), discount:centsToUnit(o.discount), shipping:centsToUnit(o.shipping), total:centsToUnit(o.total), items:o.items?.map((i:any)=>({...i,price:centsToUnit(i.price),variant:i.variant?{id:i.variant.id,name:variantDisplayName(i.variant),sku:i.variant.sku,color:i.variant.color,size:i.variant.size,model:i.variant.model,lens:i.variant.lens}:null})), events:o.events?.map((event:any)=>({...event, actor:event.user ? { id:event.user.id, name:event.user.name, role:event.user.role } : null }))}; }
 async function notifyUser(userId:string, title:string, body:string, actionUrl='/cuenta', priority='NORMAL', type='ORDER'){
   await prisma.notification.create({ data:{ userId, title, body, actionUrl, priority, type }}).catch(()=>null);
 }
@@ -130,7 +135,7 @@ router.post('/:id/customer-decision', requireAuth, async (req, res) => {
       if(order.inventoryCommitted) for(const item of order.items) {
         if(item.variantId) await tx.productVariant.update({ where:{ id:item.variantId }, data:{ stock:{ increment:item.quantity } }});
         else await tx.product.update({ where:{ id:item.productId }, data:{ stock:{ increment:item.quantity } }});
-        await tx.inventoryMovement.create({ data:{ productId:item.productId, type:'RETURN', quantity:item.quantity, reason:'Pedido cancelado por cliente', reference:order.id } });
+        await tx.inventoryMovement.create({ data:{ productId:item.productId, type:'RETURN', quantity:item.quantity, reason:'Pedido cancelado por cliente', reference:order.id, variantId:item.variantId||undefined } });
       }
       await tx.orderEvent.create({ data:{ orderId:order.id, userId:req.user!.id, type:'CUSTOMER_CANCELLED_SHIPPING', title:'Cliente canceló la tarifa de envío', body:'El pedido fue cancelado por el cliente al rechazar la tarifa.' } });
       return tx.order.update({ where:{id:order.id}, data:{ status:'CANCELLED', awaitingCustomerApproval:false, customerDecisionAt:new Date(), shippingStatus:'Cancelado por el cliente' }, include:{items:{include:{product:true,variant:true}},events:{take:8,orderBy:{createdAt:'desc'},include:{user:{select:{id:true,name:true,role:true}}}}} });

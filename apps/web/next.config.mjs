@@ -1,5 +1,7 @@
+const useStaticExport = process.env.NEXT_OUTPUT_EXPORT === "1";
+
 const nextConfig = {
-  output: "export",
+  ...(useStaticExport ? { output: "export" } : {}),
   distDir: process.env.NEXT_DIST_DIR || ".next",
   images: {
     unoptimized: true,
