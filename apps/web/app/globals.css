@@ -51,6 +51,24 @@ button, input, select, textarea { font: inherit; }
   transition: transform .2s ease, filter .2s ease, box-shadow .2s ease;
 }
 .btn-ember:hover { transform: translateY(-1px); filter: brightness(1.05); box-shadow: 0 16px 46px rgba(255,69,0,.28); }
+.btn-whatsapp {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: .5rem;
+  min-height: 2.75rem;
+  padding: .8rem 1.15rem;
+  background: #25d366;
+  color: #06140b;
+  border: 1px solid rgba(37, 211, 102, .55);
+  text-transform: uppercase;
+  letter-spacing: .12em;
+  font-size: .78rem;
+  font-weight: 900;
+  box-shadow: 0 12px 40px rgba(37, 211, 102, .18);
+  transition: transform .2s ease, filter .2s ease, box-shadow .2s ease;
+}
+.btn-whatsapp:hover { transform: translateY(-1px); filter: brightness(1.04); box-shadow: 0 16px 46px rgba(37, 211, 102, .26); }
 .btn-ghost {
   display: inline-flex;
   align-items: center;
@@ -92,3 +110,294 @@ button, input, select, textarea { font: inherit; }
 .soft-title { font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; letter-spacing: -0.025em; line-height: 1.05; font-weight: 850; text-shadow: none; }
 .input-dark option { background: #121212; color: #fff; }
 .file-input-dark::file-selector-button { border: 0; background: #ff5a14; color: #fff; padding: .65rem .9rem; margin-right: .9rem; font-weight: 800; text-transform: uppercase; letter-spacing: .08em; cursor: pointer; }
+
+/* Admin theme polish */
+.admin-shell {
+  --admin-bg: #050403;
+  --admin-bg-soft: #0c0806;
+  --admin-surface: rgba(255,255,255,.045);
+  --admin-surface-strong: rgba(255,255,255,.075);
+  --admin-border: rgba(255,255,255,.12);
+  --admin-text: #fff7ed;
+  --admin-muted: rgba(255,247,237,.58);
+  --admin-control: rgba(255,255,255,.055);
+  --admin-control-strong: rgba(255,255,255,.095);
+  --admin-shadow: rgba(0,0,0,.38);
+  min-height: 100vh;
+  background:
+    radial-gradient(circle at 18% 0%, rgba(255, 111, 28, .17), transparent 30%),
+    linear-gradient(135deg, var(--admin-bg), var(--admin-bg-soft));
+  color: var(--admin-text);
+  transition: background .25s ease, color .25s ease;
+}
+.admin-shell.admin-light {
+  --admin-bg: #f7efe7;
+  --admin-bg-soft: #fffaf4;
+  --admin-surface: rgba(255,255,255,.74);
+  --admin-surface-strong: rgba(255,255,255,.94);
+  --admin-border: rgba(81,42,17,.15);
+  --admin-text: #24130c;
+  --admin-muted: rgba(67,38,22,.64);
+  --admin-control: rgba(255,255,255,.84);
+  --admin-control-strong: #fffaf5;
+  --admin-shadow: rgba(92,47,18,.12);
+}
+.admin-panel,
+.admin-toolbar,
+.admin-stat,
+.admin-empty,
+.admin-sidebar,
+.admin-topbar,
+.admin-session-card,
+.admin-mini-row {
+  border: 1px solid var(--admin-border);
+  background: var(--admin-surface);
+  box-shadow: 0 18px 60px var(--admin-shadow);
+}
+.admin-sidebar {
+  background: color-mix(in srgb, var(--admin-bg-soft) 86%, transparent);
+  backdrop-filter: blur(18px);
+}
+.admin-topbar {
+  background: color-mix(in srgb, var(--admin-bg) 86%, transparent);
+  border-bottom: 1px solid var(--admin-border);
+}
+.admin-panel-title,
+.admin-shell b,
+.admin-shell h1,
+.admin-shell h2,
+.admin-shell h3 { color: var(--admin-text); }
+.admin-muted,
+.admin-field-label,
+.admin-field-hint,
+.admin-empty { color: var(--admin-muted); }
+.admin-field-label { letter-spacing: .12em; }
+.admin-search {
+  border: 1px solid var(--admin-border);
+  background: var(--admin-control);
+  color: var(--admin-text);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.04);
+}
+.admin-search input { color: var(--admin-text); }
+.admin-search input::placeholder { color: color-mix(in srgb, var(--admin-muted) 75%, transparent); }
+.admin-shell .input-dark {
+  border-radius: 1rem;
+  border: 1px solid var(--admin-border);
+  background: linear-gradient(180deg, var(--admin-control-strong), var(--admin-control));
+  color: var(--admin-text);
+  min-height: 2.8rem;
+  padding: .78rem .95rem;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.05), 0 10px 30px rgba(0,0,0,.08);
+  transition: border-color .18s ease, box-shadow .18s ease, background .18s ease, transform .18s ease;
+}
+.admin-shell .input-dark:hover { border-color: rgba(255,111,28,.34); }
+.admin-shell .input-dark:focus {
+  border-color: rgba(255,111,28,.75);
+  box-shadow: 0 0 0 4px rgba(255,111,28,.13), inset 0 1px 0 rgba(255,255,255,.07);
+}
+.admin-shell .input-dark::placeholder { color: color-mix(in srgb, var(--admin-muted) 72%, transparent); }
+.admin-shell select.input-dark {
+  appearance: none;
+  padding-right: 2.8rem;
+  cursor: pointer;
+  background-image:
+    linear-gradient(45deg, transparent 50%, var(--admin-muted) 50%),
+    linear-gradient(135deg, var(--admin-muted) 50%, transparent 50%),
+    linear-gradient(180deg, var(--admin-control-strong), var(--admin-control));
+  background-position:
+    calc(100% - 18px) 52%,
+    calc(100% - 12px) 52%,
+    0 0;
+  background-size: 6px 6px, 6px 6px, 100% 100%;
+  background-repeat: no-repeat;
+}
+.admin-shell select.input-dark option {
+  background: var(--admin-bg-soft);
+  color: var(--admin-text);
+}
+.admin-shell select.input-dark[multiple] {
+  min-height: 9rem;
+  padding-right: .95rem;
+  background-image: linear-gradient(180deg, var(--admin-control-strong), var(--admin-control));
+}
+.admin-shell select.input-dark[multiple] option {
+  border-radius: .7rem;
+  margin: .18rem 0;
+  padding: .55rem .7rem;
+}
+.admin-shell input[type="checkbox"] { accent-color: #ff6a1a; }
+.admin-shell .file-input-dark::file-selector-button,
+.admin-shell .input-dark::file-selector-button {
+  border: 0;
+  border-radius: .8rem;
+  background: linear-gradient(135deg, #ff5a14, #ff8a2a);
+  color: #170800;
+  padding: .62rem .9rem;
+  margin-right: .9rem;
+  font-weight: 900;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  cursor: pointer;
+}
+.admin-nav-item {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: .75rem;
+  border-radius: 1rem;
+  padding: .82rem .95rem;
+  color: var(--admin-muted);
+  transition: transform .18s ease, background .18s ease, color .18s ease, box-shadow .18s ease;
+}
+.admin-nav-item:hover {
+  transform: translateX(2px);
+  background: var(--admin-surface-strong);
+  color: var(--admin-text);
+}
+.admin-nav-item.is-active {
+  background: linear-gradient(135deg, #ff6a1a, #ff9f38);
+  color: #180700;
+  box-shadow: 0 14px 36px rgba(255,106,26,.22);
+}
+.admin-nav-item.is-active span,
+.admin-nav-item.is-active svg { color: #180700; }
+.admin-nav-badge,
+.admin-count-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: .35rem;
+  min-width: 1.7rem;
+  min-height: 1.7rem;
+  border-radius: 999px;
+  background: #ff6a1a;
+  color: #160700;
+  padding: .18rem .55rem;
+  font-size: .74rem;
+  font-weight: 950;
+}
+.admin-nav-item.is-active .admin-nav-badge { background: #180700; color: #ff9f38; }
+.admin-logout,
+.admin-theme-toggle {
+  border: 1px solid var(--admin-border);
+  background: var(--admin-surface);
+  color: var(--admin-muted);
+  transition: all .18s ease;
+}
+.admin-theme-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: .55rem;
+  min-height: 2.75rem;
+  border-radius: 999px;
+  padding: .75rem 1rem;
+  font-size: .78rem;
+  font-weight: 900;
+  text-transform: uppercase;
+  letter-spacing: .11em;
+}
+.admin-logout:hover,
+.admin-theme-toggle:hover {
+  color: var(--admin-text);
+  border-color: rgba(255,106,26,.5);
+  transform: translateY(-1px);
+}
+.admin-donut-core { background: var(--admin-bg); }
+.admin-list-row { border-bottom: 1px solid var(--admin-border); }
+.admin-recommendation {
+  border: 1px solid rgba(255,106,26,.18);
+  background: rgba(255,106,26,.08);
+  color: var(--admin-text);
+}
+.admin-notification-chip {
+  border: 1px solid var(--admin-border);
+  background: var(--admin-surface);
+  color: var(--admin-muted);
+  border-radius: 1.25rem;
+  padding: .95rem;
+  min-height: 4.25rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: .75rem;
+  transition: transform .18s ease, border-color .18s ease, background .18s ease;
+}
+.admin-notification-chip b {
+  display: grid;
+  place-items: center;
+  min-width: 2rem;
+  height: 2rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--admin-muted) 16%, transparent);
+}
+.admin-notification-chip.has-count {
+  color: var(--admin-text);
+  border-color: rgba(255,106,26,.34);
+  background: rgba(255,106,26,.08);
+}
+.admin-notification-chip:hover {
+  transform: translateY(-1px);
+  border-color: rgba(255,106,26,.55);
+}
+.admin-section-pill {
+  border: 1px solid var(--admin-border);
+  background: var(--admin-control);
+  color: var(--admin-muted);
+  border-radius: 999px;
+  padding: .45rem .75rem;
+  font-size: .78rem;
+  font-weight: 800;
+}
+.admin-notification-item {
+  border: 1px solid var(--admin-border);
+  border-radius: 1.25rem;
+  padding: 1rem;
+  color: var(--admin-muted);
+  transition: transform .18s ease, border-color .18s ease, background .18s ease, opacity .18s ease;
+}
+.admin-notification-item.is-unread {
+  background: linear-gradient(135deg, rgba(255,106,26,.16), var(--admin-surface));
+  border-color: rgba(255,106,26,.42);
+  color: var(--admin-text);
+}
+.admin-notification-item.is-read {
+  background: var(--admin-surface);
+  opacity: .72;
+}
+.admin-notification-item:hover {
+  transform: translateY(-1px);
+  border-color: rgba(255,106,26,.55);
+}
+.admin-notification-type {
+  display: inline-flex;
+  border-radius: 999px;
+  background: rgba(255,106,26,.14);
+  color: #ff8a2a;
+  padding: .25rem .55rem;
+  font-size: .68rem;
+  font-weight: 950;
+  text-transform: uppercase;
+  letter-spacing: .09em;
+}
+.admin-unread-dot {
+  width: .75rem;
+  height: .75rem;
+  border-radius: 999px;
+  background: #ff6a1a;
+  box-shadow: 0 0 0 6px rgba(255,106,26,.14);
+}
+.admin-light [class*="text-white"] { color: var(--admin-text) !important; }
+.admin-light [class*="text-white/"] { color: var(--admin-muted) !important; }
+.admin-light [class*="bg-black/"],
+.admin-light [class*="bg-white/"] { background-color: var(--admin-surface) !important; }
+.admin-light [class*="border-white/"] { border-color: var(--admin-border) !important; }
+.admin-light .text-orange-100,
+.admin-light .text-orange-200,
+.admin-light .text-orange-300 { color: #a13d00 !important; }
+.admin-light .bg-orange-500,
+.admin-light .btn-ember { color: #170800; }
+@media (max-width: 1023px) {
+  .admin-shell main { margin-left: 0; }
+  .admin-topbar { position: static; }
+}

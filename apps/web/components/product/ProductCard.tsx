@@ -18,6 +18,8 @@ interface Product {
   imageUrl?: string | null;
   images?: { url: string; alt?: string | null; sortOrder?: number }[];
   comparePrice?: number | null;
+  comparePriceUsd?: number | null;
+  discount?: { active: boolean; label?: string | null; percent?: number | null } | null;
   mainImage?: string;
   isNew: boolean;
   isBestSeller: boolean;
@@ -28,11 +30,12 @@ interface Product {
 
 export default function ProductCard({ product, index = 0 }: { product: Product; index?: number }) {
   const { isFavorite, toggleFavorite } = useFavorites();
-  const { formatPrice, language, productPrice, t } = useStoreLocale();
+  const { currency, formatPrice, language, productPrice, t } = useStoreLocale();
   const isComingSoon = product.status === "COMING_SOON";
   const favorite = isFavorite(product.id);
-  const discount = product.comparePrice
-    ? Math.round((1 - productPrice(product) / product.comparePrice) * 100)
+  const compare = currency === "USD" ? product.comparePriceUsd : product.comparePrice;
+  const discount = compare
+    ? Math.round((1 - productPrice(product) / compare) * 100)
     : null;
   const primaryImage = product.mainImage || product.images?.[0]?.url || product.imageUrl || "";
   const hoverImage = product.images?.[1]?.url && product.images[1].url !== primaryImage ? product.images[1].url : "";
@@ -87,6 +90,9 @@ export default function ProductCard({ product, index = 0 }: { product: Product; 
           {discount && discount > 0 && (
             <span className="badge text-xs text-white" style={{ background: "#ff4500" }}>-{discount}%</span>
           )}
+          {product.discount?.active && product.discount.label && (
+            <span className="badge text-xs text-black" style={{ background: "#facc15" }}>{product.discount.label}</span>
+          )}
         </div>
 
         <button
@@ -137,9 +143,9 @@ export default function ProductCard({ product, index = 0 }: { product: Product; 
           <span className="font-heading text-lg text-white font-700">
             {formatPrice(product)}
           </span>
-          {product.comparePrice && (
+          {compare && (
             <span className="text-sm text-white/30 line-through">
-              ${product.comparePrice.toFixed(2)}
+              {currency === "USD" ? "US$" : "RD$"} {Number(compare).toLocaleString(currency === "USD" ? "en-US" : "es-DO", { minimumFractionDigits: currency === "USD" ? 2 : 0, maximumFractionDigits: currency === "USD" ? 2 : 0 })}
             </span>
           )}
         </div>

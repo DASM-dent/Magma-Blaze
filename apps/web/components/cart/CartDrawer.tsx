@@ -3,14 +3,41 @@
 import { AnimatePresence, motion } from "framer-motion";
 import Image from "next/image";
 import Link from "next/link";
-import { Minus, Plus, ShoppingBag, Trash2, X } from "lucide-react";
+import { useMemo, useState } from "react";
+import { Check, MessageCircle, Minus, Plus, Share2, ShoppingBag, Trash2, X } from "lucide-react";
+import { toast } from "sonner";
 import { useCart } from "@/context/CartContext";
 import { useStoreLocale } from "@/context/LocaleContext";
-import { cartAvailabilityWhatsappUrl } from "@/lib/whatsapp";
+import { createSharedCartUrl } from "@/lib/cartShare";
 
 export default function CartDrawer() {
-  const { isOpen, closeCart, items, subtotal, itemCount, updateItem, removeItem } = useCart();
+  const { isOpen, closeCart, items, subtotal, itemCount, updateItem, removeItem, clearCart } = useCart();
   const { language, symbol, t } = useStoreLocale();
+  const [copied, setCopied] = useState(false);
+
+  const sharedCartUrl = useMemo(() => {
+    if (typeof window === "undefined") return "";
+    return createSharedCartUrl(items, window.location.origin, symbol, language);
+  }, [items, language, symbol]);
+
+
+  const shareCart = async () => {
+    if (!sharedCartUrl) return;
+
+    try {
+      if (navigator.share) {
+        await navigator.share({ title: t("cart.sharedTitle"), url: sharedCartUrl });
+      } else {
+        await navigator.clipboard.writeText(sharedCartUrl);
+      }
+      setCopied(true);
+      toast.success(t("cart.shareCopied"));
+      window.setTimeout(() => setCopied(false), 1800);
+    } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") return;
+      toast.error(t("cart.shareError"));
+    }
+  };
 
   return (
     <AnimatePresence>
@@ -134,15 +161,33 @@ export default function CartDrawer() {
                   </span>
                 </div>
                 <p className="text-xs text-white/30">{t("cart.availabilityNote")}</p>
-                <a
-                  href={cartAvailabilityWhatsappUrl(items, symbol, subtotal, language)}
-                  target="_blank"
-                  rel="noreferrer"
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={shareCart}
+                    className="btn-ghost min-h-11 px-3 text-xs"
+                  >
+                    {copied ? <Check className="h-4 w-4" /> : <Share2 className="h-4 w-4" />}
+                    {t("cart.share")}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={clearCart}
+                    className="btn-ghost min-h-11 px-3 text-xs text-red-200 hover:border-red-400/50 hover:bg-red-500/10 hover:text-red-100"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                    {t("cart.clear")}
+                  </button>
+                </div>
+                <Link
+                  href="/checkout"
                   onClick={closeCart}
-                  className="btn-ember w-full text-sm"
+                  className="btn-whatsapp w-full text-sm"
                 >
-                  {t("cart.verifyAvailability")}
-                </a>
+                  <MessageCircle className="h-5 w-5" />
+                  {t("cart.finishOrder")}
+                </Link>
+                <p className="text-xs text-white/30">{t("cart.whatsappOrderNote")}</p>
                 <button onClick={closeCart} className="w-full py-2 text-center text-xs text-white/30 transition-colors hover:text-white/60">
                   {t("cart.continue")}
                 </button>

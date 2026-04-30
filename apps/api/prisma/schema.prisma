@@ -101,6 +101,12 @@ model Product {
   price       Int
   priceUsd    Int      @default(0)
   cost        Int      @default(0)
+  discountActive Boolean      @default(false)
+  discountType   String       @default("NONE")
+  discountValue  Int          @default(0)
+  discountLabel  String?
+  discountStartsAt DateTime?
+  discountEndsAt   DateTime?
   imageUrl    String
   stock       Int             @default(0)
   lowStockThreshold Int       @default(5)
@@ -109,12 +115,37 @@ model Product {
   categoryId  String
   category    Category        @relation(fields: [categoryId], references: [id])
   images      ProductImage[]
+  variants    ProductVariant[]
   orderItems  OrderItem[]
   wishlists   WishlistItem[]
   modelPhotos ModelPhoto[]
   inventoryMovements InventoryMovement[]
   createdAt   DateTime        @default(now())
   updatedAt   DateTime        @updatedAt
+
+  @@index([discountActive])
+  @@index([discountStartsAt])
+  @@index([discountEndsAt])
+}
+
+model ProductVariant {
+  id        String   @id @default(cuid())
+  productId String
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  name      String
+  sku       String?
+  price     Int?
+  priceUsd  Int?
+  stock     Int      @default(0)
+  imageUrl  String?
+  active    Boolean  @default(true)
+  sortOrder Int      @default(0)
+  orderItems OrderItem[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([productId])
+  @@index([active])
 }
 
 model ProductImage {
@@ -184,6 +215,11 @@ model Order {
   total          Int
   country        String
   currency       String   @default("DOP")
+  salesChannel   String   @default("WEB")
+  confirmationStatus String @default("UNCONFIRMED")
+  inventoryCommitted Boolean @default(false)
+  confirmedAt    DateTime?
+  cancelledAt    DateTime?
   promoCodeId    String?
   promoCode      PromoCode? @relation(fields: [promoCodeId], references: [id])
   paymentStatus  String   @default("PENDING")
@@ -207,6 +243,10 @@ model Order {
   payments       PaymentTransaction[]
   createdAt      DateTime    @default(now())
   updatedAt      DateTime    @updatedAt
+
+  @@index([createdAt])
+  @@index([status])
+  @@index([salesChannel])
 }
 
 model OrderEvent {
@@ -232,8 +272,12 @@ model OrderItem {
   order     Order   @relation(fields: [orderId], references: [id])
   productId String
   product   Product @relation(fields: [productId], references: [id])
+  variantId String?
+  variant   ProductVariant? @relation(fields: [variantId], references: [id])
   quantity  Int
   price     Int
+
+  @@index([variantId])
 }
 
 model WishlistItem {

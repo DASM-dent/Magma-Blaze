@@ -10,7 +10,7 @@ export function ProductCard({ product }: { product:any }) {
   return <article className="glass overflow-hidden rounded-3xl">
     <div className="relative h-64"><Image src={product.imageUrl} alt={product.name} fill className="object-cover"/><span className="absolute left-4 top-4 rounded-full bg-black/70 px-3 py-1 text-xs font-bold">{product.status}</span></div>
     <div className="space-y-3 p-5">
-      <Link href={`/product/${product.slug}`} className="text-xl font-black hover:text-blaze">{product.name}</Link>
+      <Link href={`/producto/${product.slug}`} className="text-xl font-black hover:text-blaze">{product.name}</Link>
       <p className="line-clamp-2 text-sm text-white/60">{product.description}</p>
       <div className="flex items-center justify-between"><strong>{formatPrice(product)}</strong><span className="text-xs text-white/50">Stock: {product.stock}</span></div>
       <a

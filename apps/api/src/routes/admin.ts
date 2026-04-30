@@ -13,6 +13,7 @@ const roundMoney = (v:number)=>Math.round((Number(v || 0) + Number.EPSILON) * 10
 const rdToUsd = (priceRd:number)=>roundMoney(priceRd / USD_EXCHANGE_RATE);
 const centsToUnit = (v:number|null|undefined)=>roundMoney((v??0)/100);
 const unitToCents = (v:number)=>Math.round(Number(v||0)*100);
+const DISCOUNT_TYPES = ['NONE','PERCENT','FIXED_AMOUNT','FIXED_PRICE'] as const;
 const slugify=(v:string)=>v.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]+/g,'-').replace(/(^-|-$)+/g,'')||`item-${Date.now()}`;
 const ORDER_STATUSES = ['PENDING','AWAITING_SHIPPING_CONFIRMATION','AWAITING_CUSTOMER_APPROVAL','PROCESSING','PACKED','SHIPPED','DELIVERED','CANCELLED'] as const;
 const ORDER_STATUS_LABELS: Record<string,string> = {
@@ -36,6 +37,7 @@ const ADMIN_PERMISSIONS = [
   { key:'shipping', label:'Envíos', description:'Gestionar zonas y tarifas.' },
   { key:'users', label:'Usuarios', description:'Crear y administrar usuarios.' },
   { key:'finance', label:'Costos y margen', description:'Ver costos y márgenes.' },
+  { key:'sales', label:'Ventas', description:'Registrar ventas externas y descontar inventario.' },
   { key:'reports', label:'Reportes', description:'Ver reportes de ventas, pagos e inventario.' },
   { key:'coupons', label:'Cupones', description:'Crear y administrar cupones.' },
   { key:'inventory', label:'Inventario', description:'Ajustar stock y revisar movimientos.' },
@@ -82,11 +84,61 @@ function normalizeProductImages(input:any,fallbackUrl?:string,alt?:string){
   if(!unique.size&&fallbackUrl)unique.set(fallbackUrl,{url:fallbackUrl,alt:alt||null,sortOrder:0});
   return [...unique.values()].map((image,index)=>({...image,sortOrder:index}));
 }
+function normalizeProductVariants(input:any){
+  const source=Array.isArray(input)?input:[];
+  return source.map((variant:any,index:number)=>({
+    name:String(variant?.name||'').trim(),
+    sku:String(variant?.sku||'').trim()||null,
+    price:variant?.price!==undefined&&variant?.price!==null&&Number(variant.price)>0?unitToCents(Number(variant.price)):null,
+    priceUsd:variant?.priceUsd!==undefined&&variant?.priceUsd!==null&&Number(variant.priceUsd)>0?unitToCents(Number(variant.priceUsd)):null,
+    stock:Math.max(0,Number(variant?.stock||0)),
+    imageUrl:String(variant?.imageUrl||'').trim()||null,
+    active:variant?.active!==false,
+    sortOrder:Number.isFinite(Number(variant?.sortOrder))?Number(variant.sortOrder):index,
+  })).filter((variant:any)=>variant.name);
+}
+function activeDiscount(p:any,now=new Date()){
+  const type=DISCOUNT_TYPES.includes(p.discountType)?p.discountType:'NONE';
+  const value=Number(p.discountValue||0);
+  const startsAt=p.discountStartsAt?new Date(p.discountStartsAt):null;
+  const endsAt=p.discountEndsAt?new Date(p.discountEndsAt):null;
+  const inWindow=(!startsAt||startsAt<=now)&&(!endsAt||endsAt>=now);
+  if(!p.discountActive||type==='NONE'||value<=0||!inWindow)return null;
+  const baseCents=Number(p.price||0);
+  let finalCents=baseCents;
+  if(type==='PERCENT')finalCents=Math.round(baseCents*(1-Math.min(value,100)/100));
+  if(type==='FIXED_AMOUNT')finalCents=baseCents-value;
+  if(type==='FIXED_PRICE')finalCents=value;
+  finalCents=Math.max(0,Math.min(baseCents,finalCents));
+  if(finalCents>=baseCents)return null;
+  const savedCents=baseCents-finalCents;
+  const percent=baseCents?Math.round((savedCents/baseCents)*100):0;
+  return {type,value,finalCents,savedCents,percent};
+}
+function discountInputToDb(data:any,current?:any){
+  const hasType=data.discountType!==undefined;
+  const type=DISCOUNT_TYPES.includes(data.discountType)?data.discountType:(current?.discountType||'NONE');
+  const active=data.discountActive!==undefined?Boolean(data.discountActive):Boolean(current?.discountActive);
+  const rawValue=data.discountValue!==undefined?Number(data.discountValue||0):(type==='PERCENT'?Number(current?.discountValue||0):centsToUnit(current?.discountValue));
+  return {
+    ...(data.discountActive!==undefined||hasType?{discountActive:active&&type!=='NONE'}:{}),
+    ...(hasType?{discountType:active&&type!=='NONE'?type:'NONE'}:{}),
+    ...(data.discountValue!==undefined?{discountValue:type==='PERCENT'?Math.round(Math.min(rawValue,100)):unitToCents(rawValue)}:{}),
+    ...(data.discountLabel!==undefined?{discountLabel:data.discountLabel?.trim()||null}:{}),
+    ...(data.discountStartsAt!==undefined?{discountStartsAt:data.discountStartsAt?new Date(data.discountStartsAt):null}:{}),
+    ...(data.discountEndsAt!==undefined?{discountEndsAt:data.discountEndsAt?new Date(data.discountEndsAt):null}:{}),
+  };
+}
 function toProduct(p:any){
   const cost=centsToUnit(p.cost), price=centsToUnit(p.price), savedPriceUsd=centsToUnit(p.priceUsd);
   const priceUsd=savedPriceUsd>0?savedPriceUsd:rdToUsd(price);
   const images=productImages(p);
   const mainImage=images[0]?.url||p.imageUrl;
+  const active=activeDiscount(p);
+  const salePrice=active?centsToUnit(active.finalCents):price;
+  const salePriceUsd=active?rdToUsd(salePrice):priceUsd;
+  p.variants=Array.isArray(p.variants)?p.variants.sort((a:any,b:any)=>(a.sortOrder??0)-(b.sortOrder??0)).map((variant:any)=>({...variant,price:variant.price?centsToUnit(variant.price):null,priceUsd:variant.priceUsd?centsToUnit(variant.priceUsd):null})):[];
+  return {...p, imageUrl:mainImage, images, price, priceUsd, cost, profit:salePrice-cost, margin: salePrice? Number((((salePrice-cost)/salePrice)*100).toFixed(1)):0, salePrice, salePriceUsd, comparePrice:active?price:null, comparePriceUsd:active?priceUsd:null, discountValue:p.discountType==='PERCENT'?Number(p.discountValue||0):centsToUnit(p.discountValue), discount:{active:Boolean(active),type:p.discountType||'NONE',label:p.discountLabel||null,percent:active?.percent||0,amount:active?centsToUnit(active.savedCents):0,startsAt:p.discountStartsAt,endsAt:p.discountEndsAt}, mainImage, categoryName:p.category?.name??'Sin categoría', isOutOfStock:p.stock<=0||p.status==='SOLD_OUT', isNew:p.status==='NEW', isBestSeller:p.status==='BESTSELLER', isLimitedDrop:p.status==='LIMITED_DROP'};
   return {...p, imageUrl:mainImage, images, price, priceUsd, cost, profit:price-cost, margin: price? Number((((price-cost)/price)*100).toFixed(1)):0, mainImage, categoryName:p.category?.name??'Sin categoría', isOutOfStock:p.stock<=0||p.status==='SOLD_OUT', isNew:p.status==='NEW', isBestSeller:p.status==='BESTSELLER', isLimitedDrop:p.status==='LIMITED_DROP'};
 }
 function toOrder(o:any){ return {...o, subtotal:centsToUnit(o.subtotal), discount:centsToUnit(o.discount), shipping:centsToUnit(o.shipping), total:centsToUnit(o.total), items:o.items?.map((i:any)=>({...i,price:centsToUnit(i.price)})), events:o.events?.map((event:any)=>({...event, actor:event.user ? { id:event.user.id, name:event.user.name, role:event.user.role } : null }))}; }
@@ -147,6 +199,7 @@ function permissionForPath(path: string) {
   if (path.startsWith('/shipping')) return 'shipping';
   if (path.startsWith('/users')) return 'users';
   if (path.startsWith('/reports')) return 'reports';
+  if (path.startsWith('/sales')) return 'sales';
   if (path.startsWith('/coupons')) return 'coupons';
   if (path.startsWith('/inventory')) return 'inventory';
   if (path.startsWith('/settings')) return 'settings';
@@ -234,13 +287,21 @@ router.post('/categories',async(req,res)=>{const p=categorySchema.safeParse(req.
 router.patch('/categories/:id',async(req,res)=>{const p=categorySchema.partial().safeParse(req.body); if(!p.success)return res.status(400).json({message:'Categoría inválida'}); const c=await prisma.category.update({where:{id:req.params.id},data:{...p.data,...(p.data.name&&!p.data.slug?{slug:slugify(p.data.name)}:{})}}); await audit(req.user?.id,`CATEGORY_UPDATED:${c.id}`,req.ip); res.json(c);});
 router.delete('/categories/:id',async(req,res)=>{const count=await prisma.product.count({where:{categoryId:req.params.id}}); if(count>0)return res.status(409).json({message:'No puedes eliminar una categoría con productos.'}); await prisma.category.delete({where:{id:req.params.id}}); await audit(req.user?.id,`CATEGORY_DELETED:${req.params.id}`,req.ip); res.json({ok:true});});
 
-router.get('/products',async(req,res)=>{const q=String(req.query.q||'').trim(); const status=String(req.query.status||''); const products=await prisma.product.findMany({where:{AND:[q?{OR:[{name:{contains:q}},{description:{contains:q}}]}:{},status?{status}:{}]},orderBy:{createdAt:'desc'},include:{category:true,orderItems:true,images:{orderBy:{sortOrder:'asc'}}}}); res.json(products.map(toProduct));});
-const productSchema=z.object({name:z.string().min(2),slug:z.string().optional(),description:z.string().min(3),price:z.number().min(0),priceUsd:z.number().min(0).default(0),cost:z.number().min(0).default(0),imageUrl:z.string().min(5),images:z.array(z.object({url:z.string().min(5),alt:z.string().optional().nullable(),sortOrder:z.number().int().min(0).optional()})).optional(),stock:z.number().int().min(0),lowStockThreshold:z.number().int().min(0).default(5),status:z.enum(['ACTIVE','NEW','BESTSELLER','SOLD_OUT','UPCOMING','LIMITED_DROP']),categoryId:z.string().min(1)});
-router.post('/products',async(req,res)=>{const p=productSchema.safeParse(req.body); if(!p.success)return res.status(400).json({message:'Producto inválido',errors:p.error.flatten()}); const d=p.data; const images=normalizeProductImages(d.images,d.imageUrl,d.name); const {images:_images,...productData}=d; const priceUsd=d.priceUsd>0?d.priceUsd:rdToUsd(d.price); const prod=await prisma.$transaction(async tx=>{const created=await tx.product.create({data:{...productData,imageUrl:images[0]?.url||d.imageUrl,slug:d.slug||slugify(d.name),price:unitToCents(d.price),priceUsd:unitToCents(priceUsd),cost:unitToCents(d.cost),images:{create:images.map(image=>({url:image.url,alt:image.alt,sortOrder:image.sortOrder}))}},include:{category:true,orderItems:true,images:{orderBy:{sortOrder:'asc'}}}}); if(created.stock>0)await tx.inventoryMovement.create({data:{productId:created.id,type:'INITIAL',quantity:created.stock,reason:'Stock inicial',reference:created.id}}); return created;}); await audit(req.user?.id,`PRODUCT_CREATED:${prod.id}`,req.ip); res.status(201).json(toProduct(prod));});
-router.patch('/products/:id',async(req,res)=>{const p=productSchema.partial().safeParse(req.body); if(!p.success)return res.status(400).json({message:'Producto inválido'}); const current=await prisma.product.findUnique({where:{id:req.params.id}}); if(!current)return res.status(404).json({message:'Producto no encontrado'}); const d:any={...p.data}; const nextImages=p.data.images!==undefined?normalizeProductImages(p.data.images,p.data.imageUrl!==undefined?p.data.imageUrl:current.imageUrl,d.name||current.name):undefined; delete d.images; if(nextImages!==undefined)d.imageUrl=nextImages[0]?.url||d.imageUrl||current.imageUrl; if(d.price!==undefined&&(d.priceUsd===undefined||Number(d.priceUsd)<=0))d.priceUsd=rdToUsd(d.price); if(d.priceUsd!==undefined&&Number(d.priceUsd)<=0)d.priceUsd=rdToUsd(d.price!==undefined?d.price:centsToUnit(current.price)); if(d.price!==undefined)d.price=unitToCents(d.price); if(d.priceUsd!==undefined)d.priceUsd=unitToCents(d.priceUsd); if(d.cost!==undefined)d.cost=unitToCents(d.cost); if(d.name&&!d.slug)d.slug=slugify(d.name); const imageUpdate=nextImages!==undefined?{images:{deleteMany:{},create:nextImages.map(image=>({url:image.url,alt:image.alt,sortOrder:image.sortOrder}))}}:{}; const prod=await prisma.$transaction(async tx=>{const updated=await tx.product.update({where:{id:req.params.id},data:{...d,...imageUpdate},include:{category:true,orderItems:true,images:{orderBy:{sortOrder:'asc'}}}}); if(p.data.stock!==undefined&&p.data.stock!==current.stock){const delta=p.data.stock-current.stock; await tx.inventoryMovement.create({data:{productId:updated.id,type:'ADJUSTMENT',quantity:delta,reason:'Ajuste desde administracion',reference:updated.id}});} return updated;}); await audit(req.user?.id,`PRODUCT_UPDATED:${prod.id}`,req.ip); res.json(toProduct(prod));});
-router.delete('/products/:id',async(req,res)=>{const used=await prisma.orderItem.count({where:{productId:req.params.id}}); if(used>0){const prod=await prisma.product.update({where:{id:req.params.id},data:{status:'SOLD_OUT',stock:0},include:{category:true,orderItems:true,images:{orderBy:{sortOrder:'asc'}}}}); return res.json(toProduct(prod));} await prisma.wishlistItem.deleteMany({where:{productId:req.params.id}}); await prisma.modelPhoto.deleteMany({where:{productId:req.params.id}}); await prisma.product.delete({where:{id:req.params.id}}); await audit(req.user?.id,`PRODUCT_DELETED:${req.params.id}`,req.ip); res.json({ok:true});});
+router.get('/products',async(req,res)=>{const q=String(req.query.q||'').trim(); const status=String(req.query.status||''); const products=await prisma.product.findMany({where:{AND:[q?{OR:[{name:{contains:q}},{description:{contains:q}}]}:{},status?{status}:{}]},orderBy:{createdAt:'desc'},include:{category:true,orderItems:true,images:{orderBy:{sortOrder:'asc'}},variants:{orderBy:{sortOrder:'asc'}}}}); res.json(products.map(toProduct));});
+const productSchema=z.object({name:z.string().min(2),slug:z.string().optional(),description:z.string().min(3),price:z.number().min(0),priceUsd:z.number().min(0).default(0),cost:z.number().min(0).default(0),discountActive:z.boolean().default(false),discountType:z.enum(DISCOUNT_TYPES).default('NONE'),discountValue:z.number().min(0).default(0),discountLabel:z.string().optional().nullable(),discountStartsAt:z.string().optional().nullable(),discountEndsAt:z.string().optional().nullable(),imageUrl:z.string().min(5),images:z.array(z.object({url:z.string().min(5),alt:z.string().optional().nullable(),sortOrder:z.number().int().min(0).optional()})).optional(),variants:z.array(z.object({name:z.string().min(1),sku:z.string().optional().nullable(),price:z.number().min(0).optional().nullable(),priceUsd:z.number().min(0).optional().nullable(),stock:z.number().int().min(0).default(0),imageUrl:z.string().optional().nullable(),active:z.boolean().default(true),sortOrder:z.number().int().min(0).optional()})).optional(),stock:z.number().int().min(0),lowStockThreshold:z.number().int().min(0).default(5),status:z.enum(['ACTIVE','NEW','BESTSELLER','SOLD_OUT','UPCOMING','LIMITED_DROP']),categoryId:z.string().min(1)});
+router.post('/products',async(req,res)=>{const p=productSchema.safeParse(req.body); if(!p.success)return res.status(400).json({message:'Producto inválido',errors:p.error.flatten()}); const d=p.data; const images=normalizeProductImages(d.images,d.imageUrl,d.name); const {images:_images,variants:_variants,discountActive:_discountActive,discountType:_discountType,discountValue:_discountValue,discountLabel:_discountLabel,discountStartsAt:_discountStartsAt,discountEndsAt:_discountEndsAt,...productData}=d; const priceUsd=d.priceUsd>0?d.priceUsd:rdToUsd(d.price); const prod=await prisma.$transaction(async tx=>{const created=await tx.product.create({data:{...productData,...discountInputToDb(d),imageUrl:images[0]?.url||d.imageUrl,slug:d.slug||slugify(d.name),price:unitToCents(d.price),priceUsd:unitToCents(priceUsd),cost:unitToCents(d.cost),images:{create:images.map(image=>({url:image.url,alt:image.alt,sortOrder:image.sortOrder}))}},include:{category:true,orderItems:true,images:{orderBy:{sortOrder:'asc'}},variants:{orderBy:{sortOrder:'asc'}}}}); if(created.stock>0)await tx.inventoryMovement.create({data:{productId:created.id,type:'INITIAL',quantity:created.stock,reason:'Stock inicial',reference:created.id}}); return created;}); await audit(req.user?.id,`PRODUCT_CREATED:${prod.id}`,req.ip); res.status(201).json(toProduct(prod));});
+router.patch('/products/:id',async(req,res)=>{const p=productSchema.partial().safeParse(req.body); if(!p.success)return res.status(400).json({message:'Producto inválido'}); const current=await prisma.product.findUnique({where:{id:req.params.id}}); if(!current)return res.status(404).json({message:'Producto no encontrado'}); const d:any={...p.data}; const discountData=discountInputToDb(d,current); delete d.discountActive; delete d.discountType; delete d.discountValue; delete d.discountLabel; delete d.discountStartsAt; delete d.discountEndsAt; const nextImages=p.data.images!==undefined?normalizeProductImages(p.data.images,p.data.imageUrl!==undefined?p.data.imageUrl:current.imageUrl,d.name||current.name):undefined; delete d.images; delete d.variants; if(nextImages!==undefined)d.imageUrl=nextImages[0]?.url||d.imageUrl||current.imageUrl; if(d.price!==undefined&&(d.priceUsd===undefined||Number(d.priceUsd)<=0))d.priceUsd=rdToUsd(d.price); if(d.priceUsd!==undefined&&Number(d.priceUsd)<=0)d.priceUsd=rdToUsd(d.price!==undefined?d.price:centsToUnit(current.price)); if(d.price!==undefined)d.price=unitToCents(d.price); if(d.priceUsd!==undefined)d.priceUsd=unitToCents(d.priceUsd); if(d.cost!==undefined)d.cost=unitToCents(d.cost); if(d.name&&!d.slug)d.slug=slugify(d.name); const imageUpdate=nextImages!==undefined?{images:{deleteMany:{},create:nextImages.map(image=>({url:image.url,alt:image.alt,sortOrder:image.sortOrder}))}}:{}; const prod=await prisma.$transaction(async tx=>{const updated=await tx.product.update({where:{id:req.params.id},data:{...d,...discountData,...imageUpdate},include:{category:true,orderItems:true,images:{orderBy:{sortOrder:'asc'}},variants:{orderBy:{sortOrder:'asc'}}}}); if(p.data.stock!==undefined&&p.data.stock!==current.stock){const delta=p.data.stock-current.stock; await tx.inventoryMovement.create({data:{productId:updated.id,type:'ADJUSTMENT',quantity:delta,reason:'Ajuste desde administracion',reference:updated.id}});} return updated;}); await audit(req.user?.id,`PRODUCT_UPDATED:${prod.id}`,req.ip); res.json(toProduct(prod));});
+router.delete('/products/:id',async(req,res)=>{const used=await prisma.orderItem.count({where:{productId:req.params.id}}); if(used>0){const prod=await prisma.product.update({where:{id:req.params.id},data:{status:'SOLD_OUT',stock:0},include:{category:true,orderItems:true,images:{orderBy:{sortOrder:'asc'}},variants:{orderBy:{sortOrder:'asc'}}}}); return res.json(toProduct(prod));} await prisma.wishlistItem.deleteMany({where:{productId:req.params.id}}); await prisma.modelPhoto.deleteMany({where:{productId:req.params.id}}); await prisma.product.delete({where:{id:req.params.id}}); await audit(req.user?.id,`PRODUCT_DELETED:${req.params.id}`,req.ip); res.json({ok:true});});
 
-router.get('/orders',async(req,res)=>{const q=String(req.query.q||'').trim(); const status=String(req.query.status||''); const country=String(req.query.country||''); const from24=req.query.last24==='1'; const orders=await prisma.order.findMany({where:{AND:[from24?{createdAt:{gte:new Date(Date.now()-24*60*60*1000)}}:{},status?{status}:{},country?{country}:{},q?{OR:[{user:{name:{contains:q}}},{user:{email:{contains:q}}},{id:{contains:q}}]}:{}]},take:120,orderBy:{createdAt:'desc'},include:{user:true,items:{include:{product:true}},events:{take:8,orderBy:{createdAt:'desc'},include:{user:{select:{id:true,name:true,role:true}}}}}}); res.json(orders.map(toOrder));});
+const productVariantSchema=z.object({name:z.string().min(1),sku:z.string().optional().nullable(),price:z.number().min(0).optional().nullable(),priceUsd:z.number().min(0).optional().nullable(),stock:z.number().int().min(0).default(0),imageUrl:z.string().optional().nullable(),active:z.boolean().default(true),sortOrder:z.number().int().min(0).optional()});
+const variantToUi=(v:any)=>({...v,price:v.price!==null&&v.price!==undefined?centsToUnit(v.price):null,priceUsd:v.priceUsd!==null&&v.priceUsd!==undefined?centsToUnit(v.priceUsd):null});
+const variantDataToDb=(d:any)=>{const out:any={...d}; if(out.price!==undefined)out.price=out.price===null?null:unitToCents(out.price); if(out.priceUsd!==undefined)out.priceUsd=out.priceUsd===null?null:unitToCents(out.priceUsd); if(out.sku!==undefined)out.sku=out.sku||null; if(out.imageUrl!==undefined)out.imageUrl=out.imageUrl||null; if(out.sortOrder===undefined)delete out.sortOrder; return out;};
+router.get('/products/:productId/variants',async(req,res)=>{const variants=await prisma.productVariant.findMany({where:{productId:req.params.productId},orderBy:{sortOrder:'asc'}}); res.json(variants.map(variantToUi));});
+router.post('/products/:productId/variants',async(req,res)=>{const product=await prisma.product.findUnique({where:{id:req.params.productId}}); if(!product)return res.status(404).json({message:'Producto no encontrado'}); const parsed=productVariantSchema.safeParse(req.body); if(!parsed.success)return res.status(400).json({message:'Variante invalida',errors:parsed.error.flatten()}); const data:any=variantDataToDb(parsed.data); if(data.price===undefined||data.price===null)data.price=product.price; if(data.priceUsd===undefined||data.priceUsd===null)data.priceUsd=product.priceUsd; data.sortOrder=data.sortOrder??0; const created=await prisma.productVariant.create({data:{...data,productId:product.id}}); if(created.stock>0)await prisma.inventoryMovement.create({data:{productId:product.id,type:'INITIAL',quantity:created.stock,reason:'Stock inicial de variante',reference:created.id}}); await audit(req.user?.id,'PRODUCT_VARIANT_CREATED:'+created.id,req.ip); res.status(201).json(variantToUi(created));});
+router.patch('/product-variants/:id',async(req,res)=>{const parsed=productVariantSchema.partial().safeParse(req.body); if(!parsed.success)return res.status(400).json({message:'Variante invalida',errors:parsed.error.flatten()}); const current=await prisma.productVariant.findUnique({where:{id:req.params.id}}); if(!current)return res.status(404).json({message:'Variante no encontrada'}); const data:any=variantDataToDb(parsed.data); const updated=await prisma.$transaction(async tx=>{const next=await tx.productVariant.update({where:{id:req.params.id},data}); if(parsed.data.stock!==undefined&&parsed.data.stock!==current.stock){await tx.inventoryMovement.create({data:{productId:current.productId,type:'ADJUSTMENT',quantity:parsed.data.stock-current.stock,reason:'Ajuste de variante desde administracion',reference:current.id}});} return next;}); await audit(req.user?.id,'PRODUCT_VARIANT_UPDATED:'+updated.id,req.ip); res.json(variantToUi(updated));});
+router.delete('/product-variants/:id',async(req,res)=>{const current=await prisma.productVariant.findUnique({where:{id:req.params.id}}); if(!current)return res.status(404).json({message:'Variante no encontrada'}); const used=await prisma.orderItem.count({where:{variantId:req.params.id}}); if(used>0){const updated=await prisma.productVariant.update({where:{id:req.params.id},data:{active:false,stock:0}}); await audit(req.user?.id,'PRODUCT_VARIANT_DISABLED:'+updated.id,req.ip); return res.json(variantToUi(updated));} await prisma.productVariant.delete({where:{id:req.params.id}}); await audit(req.user?.id,'PRODUCT_VARIANT_DELETED:'+req.params.id,req.ip); res.json({ok:true});});
+
+router.get('/orders',async(req,res)=>{const q=String(req.query.q||'').trim(); const status=String(req.query.status||''); const country=String(req.query.country||''); const from24=req.query.last24==='1'; const orders=await prisma.order.findMany({where:{AND:[from24?{createdAt:{gte:new Date(Date.now()-24*60*60*1000)}}:{},status?{status}:{},country?{country}:{},q?{OR:[{user:{name:{contains:q}}},{user:{email:{contains:q}}},{id:{contains:q}}]}:{}]},take:120,orderBy:{createdAt:'desc'},include:{user:true,items:{include:{product:true,variant:true}},events:{take:8,orderBy:{createdAt:'desc'},include:{user:{select:{id:true,name:true,role:true}}}}}}); res.json(orders.map(toOrder));});
 const orderUpdateSchema=z.object({status:z.enum(ORDER_STATUSES).optional(),shippingStatus:z.string().optional(),shipping:z.number().min(0).optional(),awaitingCustomerApproval:z.boolean().optional(),addressLine:z.string().optional(),packageNote:z.string().optional().nullable(),deliveryPlace:z.string().optional().nullable(),driverName:z.string().optional().nullable(),driverPhone:z.string().optional().nullable(),shippingReference:z.string().optional().nullable(),shippingInvoiceUrl:z.string().optional().nullable(),shippingInvoicePdfUrl:z.string().optional().nullable(),adminNote:z.string().optional().nullable()});
 router.patch('/orders/:id',async(req,res)=>{
   const p=orderUpdateSchema.safeParse(req.body);
@@ -282,6 +343,52 @@ router.patch('/orders/:id',async(req,res)=>{
   await audit(req.user?.id,`ORDER_UPDATED:${order.id}`,req.ip);
   const refreshed=await prisma.order.findUnique({where:{id:order.id},include:{user:true,items:{include:{product:true}},events:{take:8,orderBy:{createdAt:'desc'},include:{user:{select:{id:true,name:true,role:true}}}}}});
   res.json(toOrder(refreshed||order));
+});
+
+router.post('/orders/:id/confirm-sale',async(req,res)=>{
+  const current=await prisma.order.findUnique({where:{id:req.params.id},include:{user:true,items:{include:{product:true,variant:true}}}});
+  if(!current)return res.status(404).json({message:'Pedido no encontrado'});
+  if(current.status==='CANCELLED')return res.status(409).json({message:'No puedes confirmar un pedido cancelado.'});
+  if(current.inventoryCommitted)return res.json(toOrder(current));
+  const updated=await prisma.$transaction(async tx=>{
+    for(const item of current.items){
+      if(item.variantId){
+        const variantUpdate=await tx.productVariant.updateMany({where:{id:item.variantId,stock:{gte:item.quantity}},data:{stock:{decrement:item.quantity}}});
+        if(variantUpdate.count!==1)throw new Error(`Stock insuficiente para ${item.product?.name || 'producto'} - ${item.variant?.name || 'variante'}`);
+      }else{
+        const productUpdate=await tx.product.updateMany({where:{id:item.productId,stock:{gte:item.quantity}},data:{stock:{decrement:item.quantity}}});
+        if(productUpdate.count!==1)throw new Error(`Stock insuficiente para ${item.product?.name || 'producto'}`);
+      }
+      await tx.inventoryMovement.create({data:{productId:item.productId,type:'SALE',quantity:-item.quantity,reason:'Venta confirmada por admin',reference:current.id}});
+    }
+    await tx.paymentTransaction.updateMany({where:{orderId:current.id,status:{in:['PENDING_CONFIRMATION','PENDING','AWAITING_ADMIN_CONFIRMATION']}},data:{status:'CONFIRMED'}});
+    await tx.orderEvent.create({data:{orderId:current.id,userId:req.user?.id,type:'SALE_CONFIRMED',title:'Venta confirmada',body:'Admin confirmo pago/disponibilidad y el inventario fue descontado.'}});
+    return tx.order.update({where:{id:current.id},data:{status:'PROCESSING',paymentStatus:'CONFIRMED',confirmationStatus:'CONFIRMED',inventoryCommitted:true,confirmedAt:new Date(),shippingStatus:'Venta confirmada'},include:{user:true,items:{include:{product:true,variant:true}},events:{take:8,orderBy:{createdAt:'desc'},include:{user:{select:{id:true,name:true,role:true}}}}}});
+  });
+  await notifyCustomer(current.userId,'Pedido confirmado','Tu pedido fue confirmado por la tienda y esta en procesamiento.','/cuenta','NORMAL','ORDER');
+  await audit(req.user?.id,`ORDER_SALE_CONFIRMED:${current.id}`,req.ip);
+  res.json(toOrder(updated));
+});
+
+router.post('/orders/:id/cancel-sale',async(req,res)=>{
+  const current=await prisma.order.findUnique({where:{id:req.params.id},include:{user:true,items:{include:{product:true,variant:true}}}});
+  if(!current)return res.status(404).json({message:'Pedido no encontrado'});
+  if(current.status==='CANCELLED')return res.json(toOrder(current));
+  const updated=await prisma.$transaction(async tx=>{
+    if(current.inventoryCommitted){
+      for(const item of current.items){
+        if(item.variantId)await tx.productVariant.update({where:{id:item.variantId},data:{stock:{increment:item.quantity}}});
+        else await tx.product.update({where:{id:item.productId},data:{stock:{increment:item.quantity}}});
+        await tx.inventoryMovement.create({data:{productId:item.productId,type:'RETURN',quantity:item.quantity,reason:'Venta cancelada por admin',reference:current.id}});
+      }
+    }
+    await tx.paymentTransaction.updateMany({where:{orderId:current.id},data:{status:'CANCELLED'}});
+    await tx.orderEvent.create({data:{orderId:current.id,userId:req.user?.id,type:'SALE_CANCELLED',title:'Venta cancelada',body:current.inventoryCommitted?'Inventario devuelto por cancelacion.':'Pedido cancelado antes de confirmar inventario.'}});
+    return tx.order.update({where:{id:current.id},data:{status:'CANCELLED',paymentStatus:'CANCELLED',confirmationStatus:'CANCELLED',inventoryCommitted:false,cancelledAt:new Date(),shippingStatus:'Venta cancelada'},include:{user:true,items:{include:{product:true,variant:true}},events:{take:8,orderBy:{createdAt:'desc'},include:{user:{select:{id:true,name:true,role:true}}}}}});
+  });
+  await notifyCustomer(current.userId,'Pedido cancelado','Tu pedido fue cancelado por la tienda.','/cuenta','NORMAL','ORDER');
+  await audit(req.user?.id,`ORDER_SALE_CANCELLED:${current.id}`,req.ip);
+  res.json(toOrder(updated));
 });
 
 router.post('/orders/:id/invoice',async(req,res)=>{
@@ -425,6 +532,37 @@ const notificationCreateSchema=z.object({
   userId:z.string().optional().nullable(),
   permission:z.string().optional().nullable(),
 });
+
+function notificationSection(notification:any){
+  const action=String(notification.actionUrl||'').toLowerCase();
+  const type=String(notification.type||'SYSTEM').toUpperCase();
+  if(action.includes('product')||action.includes('inventory'))return action.includes('inventory')?'inventory':'products';
+  if(action.includes('order')||type==='ORDER')return 'orders';
+  if(action.includes('support')||action.includes('ticket')||type==='SUPPORT')return 'support';
+  if(action.includes('sales')||type==='SALES')return 'sales';
+  if(action.includes('user'))return 'users';
+  if(action.includes('shipping'))return 'shipping';
+  if(type==='INVENTORY')return 'inventory';
+  return 'notifications';
+}
+router.get('/notifications/summary',async(req,res)=>{
+  const unreadNotifications=await prisma.notification.findMany({where:{AND:[notificationScope(req),{read:false}]},select:{id:true,type:true,priority:true,actionUrl:true}});
+  const allNotifications=await prisma.notification.groupBy({by:['read'],where:notificationScope(req),_count:{_all:true}}).catch(()=>[] as any[]);
+  const byType:Record<string,number>={};
+  const byPriority:Record<string,number>={};
+  const bySection:Record<string,number>={};
+  for(const notification of unreadNotifications){
+    const type=notification.type||'SYSTEM';
+    const priority=notification.priority||'NORMAL';
+    const section=notificationSection(notification);
+    byType[type]=(byType[type]||0)+1;
+    byPriority[priority]=(byPriority[priority]||0)+1;
+    bySection[section]=(bySection[section]||0)+1;
+  }
+  const readCount=allNotifications.find((item:any)=>item.read===true)?._count?._all||0;
+  res.json({total:unreadNotifications.length,read:readCount,byType,byPriority,bySection});
+});
+
 router.get('/notifications',async(req,res)=>{
   const unread=req.query.unread==='1';
   const type=String(req.query.type||'').trim();
@@ -462,6 +600,227 @@ router.post('/notifications/read-all',async(req,res)=>{
 });
 
 function toPromo(p:any){return {...p,amount:centsToUnit(p.amount),minSubtotal:centsToUnit(p.minSubtotal)};}
+
+const SALES_CHANNELS = ['WHATSAPP','FISICO','TRANSFERENCIA','INSTAGRAM','OTRO'] as const;
+const SALES_CHANNEL_LABELS: Record<string,string> = {
+  WHATSAPP:'WhatsApp',
+  FISICO:'Venta fisica',
+  TRANSFERENCIA:'Transferencia',
+  INSTAGRAM:'Instagram',
+  OTRO:'Otro',
+  WEB:'Web',
+};
+const manualSaleSchema = z.object({
+  channel:z.enum(SALES_CHANNELS).default('WHATSAPP'),
+  customerName:z.string().optional().nullable(),
+  reference:z.string().optional().nullable(),
+  note:z.string().optional().nullable(),
+  currency:z.enum(['DOP','USD']).default('DOP'),
+  items:z.array(z.object({
+    productId:z.string().min(1),
+    quantity:z.number().int().min(1),
+    unitPrice:z.number().min(0).optional().nullable(),
+  })).min(1),
+});
+const reportDateKey = (date:Date)=>{
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone:'America/Santo_Domingo',
+    year:'numeric',
+    month:'2-digit',
+    day:'2-digit',
+  }).formatToParts(date).reduce((acc:any,part)=>{ acc[part.type]=part.value; return acc; },{});
+  return `${parts.year}-${parts.month}-${parts.day}`;
+};
+const parseReportMonth = (value:unknown)=>{
+  const raw=String(value||'').trim();
+  const fallback=reportDateKey(new Date()).slice(0,7);
+  if(!/^\d{4}-\d{2}$/.test(raw))return fallback;
+  const [year,month]=raw.split('-').map(Number);
+  if(year<2020||month<1||month>12)return fallback;
+  return raw;
+};
+async function getManualSaleUser(tx:any){
+  return tx.user.upsert({
+    where:{email:'ventas@magmablaze.local'},
+    update:{},
+    create:{
+      email:'ventas@magmablaze.local',
+      passwordHash:'manual-sale-account',
+      name:'Venta manual',
+      role:'CUSTOMER',
+      isVerified:true,
+    },
+  });
+}
+router.post('/sales/manual', async(req,res)=>{
+  const parsed=manualSaleSchema.safeParse(req.body);
+  if(!parsed.success)return res.status(400).json({message:'Venta invalida',errors:parsed.error.flatten()});
+  const data=parsed.data;
+  const grouped=new Map<string,{productId:string;quantity:number;unitPrice?:number|null}>();
+  data.items.forEach(item=>{
+    const current=grouped.get(item.productId);
+    if(current)current.quantity+=item.quantity;
+    else grouped.set(item.productId,{...item});
+  });
+  const items=[...grouped.values()];
+  const products=await prisma.product.findMany({where:{id:{in:items.map(item=>item.productId)}},include:{category:true,images:{orderBy:{sortOrder:'asc'}}}});
+  const productMap=new Map(products.map(product=>[product.id,product]));
+  const missing=items.find(item=>!productMap.has(item.productId));
+  if(missing)return res.status(404).json({message:'Uno de los productos no existe.'});
+  const stockIssue=items.find(item=>(productMap.get(item.productId)?.stock||0)<item.quantity);
+  if(stockIssue){
+    const product=productMap.get(stockIssue.productId);
+    return res.status(409).json({message:`Stock insuficiente para ${product?.name||'el producto'}. Disponible: ${product?.stock||0}.`});
+  }
+  const orderItems=items.map(item=>{
+    const product=productMap.get(item.productId)!;
+    const active=activeDiscount(product);
+    const price=item.unitPrice!==undefined&&item.unitPrice!==null?unitToCents(item.unitPrice):(active?.finalCents||product.price);
+    return {product,quantity:item.quantity,price};
+  });
+  const subtotal=orderItems.reduce((sum,item)=>sum+(item.price*item.quantity),0);
+  const channelLabel=SALES_CHANNEL_LABELS[data.channel]||data.channel;
+  const order=await prisma.$transaction(async tx=>{
+    const manualUser=await getManualSaleUser(tx);
+    const created=await tx.order.create({
+      data:{
+        userId:manualUser.id,
+        status:'DELIVERED',
+        shippingStatus:'ENTREGADO',
+        subtotal,
+        discount:0,
+        shipping:0,
+        total:subtotal,
+        country:'RD',
+        currency:data.currency,
+        salesChannel:data.channel,
+        paymentStatus:'PAID',
+        paymentProvider:data.channel,
+        paymentReference:data.reference?.trim()||null,
+        addressLine:`Venta manual${data.customerName?.trim()?` - ${data.customerName.trim()}`:''}`,
+        adminNote:data.note?.trim()||null,
+        deliveredAt:new Date(),
+        items:{create:orderItems.map(item=>({productId:item.product.id,quantity:item.quantity,price:item.price}))},
+        payments:{create:{provider:data.channel,status:'PAID',amount:subtotal,currency:data.currency,reference:data.reference?.trim()||null}},
+      },
+      include:{user:true,items:{include:{product:{include:{category:true}}}},payments:true},
+    });
+    for(const item of orderItems){
+      const updated=await tx.product.updateMany({where:{id:item.product.id,stock:{gte:item.quantity}},data:{stock:{decrement:item.quantity}}});
+      if(updated.count!==1)throw new Error(`Stock insuficiente para ${item.product.name}.`);
+      await tx.inventoryMovement.create({
+        data:{
+          productId:item.product.id,
+          type:'SALE',
+          quantity:-item.quantity,
+          reason:`Venta manual: ${channelLabel}`,
+          reference:created.id,
+        },
+      });
+    }
+    await tx.orderEvent.create({
+      data:{
+        orderId:created.id,
+        userId:req.user?.id,
+        type:'MANUAL_SALE_CREATED',
+        title:`Venta registrada por ${channelLabel}`,
+        body:data.note?.trim()||undefined,
+        metadata:JSON.stringify({channel:data.channel,reference:data.reference||null}),
+      },
+    }).catch(()=>null);
+    return created;
+  });
+  await audit(req.user?.id,`MANUAL_SALE_CREATED:${order.id}:${data.channel}`,req.ip);
+  await notifyStaff('inventory','Venta manual registrada',`${channelLabel}: ${centsToUnit(subtotal).toLocaleString('es-DO')} ${data.currency}.`, '/dixnissowner', 'NORMAL', 'SALES');
+  res.status(201).json(toOrder(order));
+});
+
+router.get('/reports',async(req,res)=>{
+  const now=new Date();
+  const month=parseReportMonth(req.query.month);
+  const [year,monthNumber]=month.split('-').map(Number);
+  const daysInMonth=new Date(year,monthNumber,0).getDate();
+  const since30=new Date(now.getTime()-30*24*60*60*1000);
+  const [orders,products,movements,payments,coupons,customers]=await Promise.all([
+    prisma.order.findMany({take:1000,orderBy:{createdAt:'desc'},include:{user:true,items:{include:{product:{include:{category:true}}}},promoCode:true,payments:true}}),
+    prisma.product.findMany({include:{category:true}}),
+    prisma.inventoryMovement.findMany({take:160,orderBy:{createdAt:'desc'},include:{product:true}}),
+    prisma.paymentTransaction.findMany({take:300,orderBy:{createdAt:'desc'}}),
+    prisma.promoCode.findMany({orderBy:{createdAt:'desc'}}),
+    prisma.user.count({where:{role:'CUSTOMER'}}),
+  ]);
+  const completed=orders.filter(o=>!['CANCELLED'].includes(o.status));
+  const recentCompleted=completed.filter(o=>o.createdAt>=since30);
+  const totalRevenue=completed.reduce((s,o)=>s+o.total,0);
+  const totalDiscount=completed.reduce((s,o)=>s+(o.discount||0),0);
+  const totalShipping=completed.reduce((s,o)=>s+o.shipping,0);
+  const totalCost=completed.reduce((sum,order)=>sum+order.items.reduce((itemSum,item)=>itemSum+((item.product?.cost||0)*item.quantity),0),0);
+  const totalProfit=totalRevenue-totalCost;
+  const statusCounts=orders.reduce((acc:any,o)=>{acc[o.status]=(acc[o.status]||0)+1;return acc;},{});
+  const paymentCounts=payments.reduce((acc:any,p)=>{acc[p.status]=(acc[p.status]||0)+1;return acc;},{});
+  const currencyTotals=completed.reduce((acc:any,o)=>{const key=o.currency||'DOP'; acc[key]=(acc[key]||0)+o.total; return acc;},{});
+  const productSales=new Map<string,{id:string;name:string;quantity:number;revenue:number;stock:number;category:string}>();
+  completed.forEach(order=>order.items.forEach(item=>{
+    const current=productSales.get(item.productId)||{id:item.productId,name:item.product?.name||item.productId,quantity:0,revenue:0,stock:item.product?.stock||0,category:item.product?.category?.name||'Sin categoria'};
+    current.quantity+=item.quantity; current.revenue+=item.price*item.quantity; productSales.set(item.productId,current);
+  }));
+  const monthOrders=completed.filter(order=>reportDateKey(order.createdAt).startsWith(month));
+  const dailySales=Array.from({length:daysInMonth}).map((_,index)=>{
+    const date=`${month}-${String(index+1).padStart(2,'0')}`;
+    const dayOrders=monthOrders.filter(o=>reportDateKey(o.createdAt)===date);
+    return {date,orders:dayOrders.length,revenue:centsToUnit(dayOrders.reduce((s,o)=>s+o.total,0)),profit:centsToUnit(dayOrders.reduce((s,o)=>s+o.total-o.items.reduce((cost,item)=>cost+((item.product?.cost||0)*item.quantity),0),0))};
+  });
+  const categorySales=new Map<string,{name:string;quantity:number;revenue:number}>();
+  completed.forEach(order=>order.items.forEach(item=>{
+    const key=item.product?.category?.name||'Sin categoria';
+    const current=categorySales.get(key)||{name:key,quantity:0,revenue:0};
+    current.quantity+=item.quantity;
+    current.revenue+=item.price*item.quantity;
+    categorySales.set(key,current);
+  }));
+  const lowStock=products.filter(p=>p.stock<=p.lowStockThreshold).map(toProduct);
+  res.json({
+    summary:{
+      orders:orders.length,
+      completedOrders:completed.length,
+      orders30:recentCompleted.length,
+      customers,
+      revenue:centsToUnit(totalRevenue),
+      revenue30:centsToUnit(recentCompleted.reduce((s,o)=>s+o.total,0)),
+      discount:centsToUnit(totalDiscount),
+      shipping:centsToUnit(totalShipping),
+      cost:centsToUnit(totalCost),
+      profit:centsToUnit(totalProfit),
+      margin:totalRevenue?Number(((totalProfit/totalRevenue)*100).toFixed(1)):0,
+      averageOrder:completed.length?centsToUnit(totalRevenue/completed.length):0,
+      cancellationRate:orders.length?Number(((orders.filter(o=>o.status==='CANCELLED').length/orders.length)*100).toFixed(1)):0,
+      lowStock:lowStock.length,
+    },
+    statusCounts,
+    paymentCounts,
+    currencyTotals:Object.fromEntries(Object.entries(currencyTotals).map(([key,value]:any)=>[key,centsToUnit(value)])),
+    calendar:{
+      month,
+      monthLabel:new Date(year,monthNumber-1,1).toLocaleDateString('es-DO',{month:'long',year:'numeric'}),
+      days:dailySales,
+    },
+    calendarOrders:monthOrders.map(order=>({
+      ...toOrder(order),
+      date:reportDateKey(order.createdAt),
+      salesChannel:(order as any).salesChannel||order.paymentProvider||'WEB',
+      salesChannelLabel:SALES_CHANNEL_LABELS[(order as any).salesChannel||order.paymentProvider||'WEB']||((order as any).salesChannel||order.paymentProvider||'Web'),
+      customerName:order.addressLine?.startsWith('Venta manual')?order.addressLine.replace('Venta manual - ','').replace('Venta manual','').trim()||'Venta manual':order.user?.name,
+      itemSummary:order.items.map(item=>`${item.quantity} x ${item.product?.name||'Producto'}`).join(' + '),
+    })),
+    dailySales,
+    categorySales:[...categorySales.values()].sort((a,b)=>b.revenue-a.revenue).map(item=>({...item,revenue:centsToUnit(item.revenue)})),
+    topProducts:[...productSales.values()].sort((a,b)=>b.revenue-a.revenue).slice(0,10).map(p=>({...p,revenue:centsToUnit(p.revenue)})),
+    lowStock,
+    movements:movements.map(m=>({...m,productName:m.product?.name})),
+    coupons:coupons.map(toPromo)
+  });
+});
+
 router.get('/reports',async(_req,res)=>{
   const now=new Date();
   const since30=new Date(now.getTime()-30*24*60*60*1000);

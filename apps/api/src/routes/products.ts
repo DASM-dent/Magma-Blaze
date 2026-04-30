@@ -7,6 +7,28 @@ const router = Router();
 const USD_EXCHANGE_RATE = 48;
 const roundMoney = (v: number) => Math.round((Number(v || 0) + Number.EPSILON) * 100) / 100;
 const rdToUsd = (priceRd: number) => roundMoney(priceRd / USD_EXCHANGE_RATE);
+const DISCOUNT_TYPES = ['NONE', 'PERCENT', 'FIXED_AMOUNT', 'FIXED_PRICE'] as const;
+
+function activeDiscount(p: any, now = new Date()) {
+  const type = DISCOUNT_TYPES.includes(p.discountType) ? p.discountType : 'NONE';
+  const value = Number(p.discountValue || 0);
+  const startsAt = p.discountStartsAt ? new Date(p.discountStartsAt) : null;
+  const endsAt = p.discountEndsAt ? new Date(p.discountEndsAt) : null;
+  const inWindow = (!startsAt || startsAt <= now) && (!endsAt || endsAt >= now);
+  if (!p.discountActive || type === 'NONE' || value <= 0 || !inWindow) return null;
+
+  const baseCents = Number(p.price || 0);
+  let finalCents = baseCents;
+  if (type === 'PERCENT') finalCents = Math.round(baseCents * (1 - Math.min(value, 100) / 100));
+  if (type === 'FIXED_AMOUNT') finalCents = baseCents - value;
+  if (type === 'FIXED_PRICE') finalCents = value;
+  finalCents = Math.max(0, Math.min(baseCents, finalCents));
+  if (finalCents >= baseCents) return null;
+
+  const savedCents = baseCents - finalCents;
+  const percent = baseCents ? Math.round((savedCents / baseCents) * 100) : 0;
+  return { type, value, finalCents, savedCents, percent };
+}
 
 function productImages(p: any) {
   const images = Array.isArray(p.images) ? p.images : [];
@@ -37,17 +59,49 @@ function normalizeProductImages(input: any, fallbackUrl?: string, alt?: string) 
   return [...unique.values()].map((image, index) => ({ ...image, sortOrder: index }));
 }
 
+function toUiVariant(variant: any) {
+  return {
+    id: variant.id,
+    name: variant.name,
+    sku: variant.sku,
+    price: variant.price ? variant.price / 100 : null,
+    priceUsd: variant.priceUsd ? roundMoney(variant.priceUsd / 100) : null,
+    stock: variant.stock,
+    imageUrl: variant.imageUrl,
+    active: variant.active,
+    sortOrder: variant.sortOrder ?? 0,
+  };
+}
+
 function toUiProduct(p: any) {
   const images = productImages(p);
   const mainImage = images[0]?.url || p.imageUrl;
+  const basePrice = p.price / 100;
+  const basePriceUsd = p.priceUsd ? roundMoney(p.priceUsd / 100) : rdToUsd(basePrice);
+  const discount = activeDiscount(p);
+  const finalPrice = discount ? discount.finalCents / 100 : basePrice;
+  const finalPriceUsd = discount ? rdToUsd(finalPrice) : basePriceUsd;
   return {
     ...p,
-    price: p.price / 100,
-    priceUsd: p.priceUsd ? roundMoney(p.priceUsd / 100) : rdToUsd(p.price / 100),
-    comparePrice: p.status === 'BESTSELLER' ? Math.round((p.price / 100) * 1.18) : null,
+    basePrice,
+    basePriceUsd,
+    price: finalPrice,
+    priceUsd: finalPriceUsd,
+    comparePrice: discount ? basePrice : null,
+    comparePriceUsd: discount ? basePriceUsd : null,
+    discount: discount ? {
+      active: true,
+      type: discount.type,
+      label: p.discountLabel || 'Oferta',
+      percent: discount.percent,
+      amount: discount.savedCents / 100,
+      startsAt: p.discountStartsAt,
+      endsAt: p.discountEndsAt,
+    } : null,
     imageUrl: mainImage,
     mainImage,
     images,
+    variants: Array.isArray(p.variants) ? p.variants.filter((variant:any)=>variant.active).sort((a:any,b:any)=>(a.sortOrder??0)-(b.sortOrder??0)).map(toUiVariant) : [],
     isNew: p.status === 'NEW',
     isBestSeller: p.status === 'BESTSELLER',
     isLimitedDrop: p.status === 'LIMITED_DROP',
@@ -63,7 +117,7 @@ router.get('/autocomplete', async (req, res) => {
     where: { OR: [{ name: { contains: q } }, { description: { contains: q } }] },
     take: 8,
     orderBy: { createdAt: 'desc' },
-    include: { images: { orderBy: { sortOrder: 'asc' } } },
+    include: { images: { orderBy: { sortOrder: 'asc' } }, variants: { orderBy: { sortOrder: 'asc' } } },
   });
   res.json(products.map(toUiProduct));
 });
@@ -91,29 +145,43 @@ router.get('/', async (req, res) => {
   const orderBy: any = sortBy === 'price_asc' ? { price: 'asc' } : sortBy === 'price_desc' ? { price: 'desc' } : sortBy === 'popular' ? { views: 'desc' } : sortBy === 'best_selling' ? { status: 'asc' } : { createdAt: 'desc' };
   const [total, products] = await Promise.all([
     prisma.product.count({ where }),
-    prisma.product.findMany({ where, include: { category: true, images: { orderBy: { sortOrder: 'asc' } } }, orderBy, skip: (page - 1) * limit, take: limit }),
+    prisma.product.findMany({ where, include: { category: true, images: { orderBy: { sortOrder: 'asc' } }, variants: { orderBy: { sortOrder: 'asc' } } }, orderBy, skip: (page - 1) * limit, take: limit }),
   ]);
   res.json({ items: products.map(toUiProduct), pagination: { page, limit, total, totalPages: Math.max(Math.ceil(total / limit), 1) } });
 });
 
 router.get('/:slug', async (req, res) => {
-  const product = await prisma.product.findFirst({ where: { OR: [{ slug: req.params.slug }, { id: req.params.slug }] }, include: { category: true, images: { orderBy: { sortOrder: 'asc' } } } }).catch(() => null);
+  const product = await prisma.product.findFirst({ where: { OR: [{ slug: req.params.slug }, { id: req.params.slug }] }, include: { category: true, images: { orderBy: { sortOrder: 'asc' } }, variants: { orderBy: { sortOrder: 'asc' } } } }).catch(() => null);
   if (!product) return res.status(404).json({ message: 'Producto no encontrado' });
   await prisma.product.update({ where: { id: product.id }, data: { views: { increment: 1 } } });
   res.json(toUiProduct(product));
 });
 
 const productSchema = z.object({
-  name: z.string().min(2), slug: z.string().min(2), description: z.string().min(5), price: z.number().positive(), priceUsd: z.number().min(0).default(0), cost: z.number().min(0).default(0), imageUrl: z.string().min(5), images: z.array(z.object({ url: z.string().min(5), alt: z.string().optional().nullable(), sortOrder: z.number().int().min(0).optional() })).optional(), stock: z.number().int().min(0), status: z.enum(['ACTIVE','NEW','BESTSELLER','SOLD_OUT','UPCOMING','LIMITED_DROP']), categoryId: z.string()
+  name: z.string().min(2), slug: z.string().min(2), description: z.string().min(5), price: z.number().positive(), priceUsd: z.number().min(0).default(0), cost: z.number().min(0).default(0), discountActive: z.boolean().default(false), discountType: z.enum(DISCOUNT_TYPES).default('NONE'), discountValue: z.number().min(0).default(0), discountLabel: z.string().optional().nullable(), discountStartsAt: z.string().optional().nullable(), discountEndsAt: z.string().optional().nullable(), imageUrl: z.string().min(5), images: z.array(z.object({ url: z.string().min(5), alt: z.string().optional().nullable(), sortOrder: z.number().int().min(0).optional() })).optional(), stock: z.number().int().min(0), status: z.enum(['ACTIVE','NEW','BESTSELLER','SOLD_OUT','UPCOMING','LIMITED_DROP']), categoryId: z.string()
 });
+
+function discountInputToDb(data: any) {
+  const type = DISCOUNT_TYPES.includes(data.discountType) ? data.discountType : 'NONE';
+  const active = Boolean(data.discountActive) && type !== 'NONE';
+  const rawValue = Number(data.discountValue || 0);
+  return {
+    discountActive: active,
+    discountType: active ? type : 'NONE',
+    discountValue: type === 'PERCENT' ? Math.round(Math.min(rawValue, 100)) : Math.round(rawValue * 100),
+    discountLabel: data.discountLabel?.trim() || null,
+    discountStartsAt: data.discountStartsAt ? new Date(data.discountStartsAt) : null,
+    discountEndsAt: data.discountEndsAt ? new Date(data.discountEndsAt) : null,
+  };
+}
 
 router.post('/', requireAuth, requireAdmin, async (req, res) => {
   const parsed = productSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ message: 'Producto inválido', errors: parsed.error.flatten() });
   const priceUsd = parsed.data.priceUsd > 0 ? parsed.data.priceUsd : rdToUsd(parsed.data.price);
   const images = normalizeProductImages(parsed.data.images, parsed.data.imageUrl, parsed.data.name);
-  const { images: _images, ...payload } = parsed.data;
-  const data = { ...payload, imageUrl: images[0]?.url || parsed.data.imageUrl, price: Math.round(parsed.data.price * 100), priceUsd: Math.round(priceUsd * 100), cost: Math.round(parsed.data.cost * 100), images: { create: images.map(image => ({ url: image.url, alt: image.alt, sortOrder: image.sortOrder })) } };
+  const { images: _images, discountActive: _discountActive, discountType: _discountType, discountValue: _discountValue, discountLabel: _discountLabel, discountStartsAt: _discountStartsAt, discountEndsAt: _discountEndsAt, ...payload } = parsed.data;
+  const data = { ...payload, ...discountInputToDb(parsed.data), imageUrl: images[0]?.url || parsed.data.imageUrl, price: Math.round(parsed.data.price * 100), priceUsd: Math.round(priceUsd * 100), cost: Math.round(parsed.data.cost * 100), images: { create: images.map(image => ({ url: image.url, alt: image.alt, sortOrder: image.sortOrder })) } };
   const product = await prisma.product.create({ data, include: { category: true, images: { orderBy: { sortOrder: 'asc' } } } });
   await prisma.auditLog.create({ data: { userId: req.user!.id, action: `PRODUCT_CREATED:${product.id}`, ip: req.ip }});
   res.status(201).json(toUiProduct(product));

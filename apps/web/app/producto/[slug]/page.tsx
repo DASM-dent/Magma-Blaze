@@ -17,7 +17,7 @@ export default function ProductoPage() {
     queryFn: () => productApi.detail(params.slug).then(r => r.data),
     enabled: Boolean(params.slug),
   });
-  const { country, symbol, formatPrice, productPrice, t } = useStoreLocale();
+  const { currency, symbol, formatPrice, t } = useStoreLocale();
   const product: any = data;
   const [activeImage, setActiveImage] = useState(0);
   const galleryImages = useMemo<GalleryImage[]>(() => {
@@ -48,8 +48,7 @@ export default function ProductoPage() {
   if (isLoading) return <div className="min-h-screen pt-32 px-6 text-white/50">{t('product.loading')}...</div>;
   if (error || !product) return <div className="min-h-screen pt-32 px-6 text-white"><p>{t('product.notFound')}</p><Link href="/catalogo" className="btn-ember mt-6 inline-flex">{t('product.backToCatalog')}</Link></div>;
 
-  const compare = country === 'US' && product.comparePriceUsd ? product.comparePriceUsd : product.comparePrice;
-  const price = productPrice(product);
+  const compare = currency === 'USD' && product.comparePriceUsd ? product.comparePriceUsd : product.comparePrice;
 
   return (
     <div className="min-h-screen pt-24 px-4 md:px-6 pb-20">
@@ -103,9 +102,10 @@ export default function ProductoPage() {
           <p className="max-w-xl whitespace-pre-line break-words text-white/50 leading-relaxed">{product.description}</p>
           <div className="flex items-end gap-3">
             <span className="text-4xl font-700 text-white">{formatPrice(product)}</span>
-            {compare ? <span className="text-white/30 line-through pb-1">{symbol} {Number(compare).toLocaleString('es-DO')}</span> : null}
+            {compare ? <span className="text-white/30 line-through pb-1">{symbol} {Number(compare).toLocaleString(currency === 'USD' ? 'en-US' : 'es-DO', { minimumFractionDigits: currency === 'USD' ? 2 : 0, maximumFractionDigits: currency === 'USD' ? 2 : 0 })}</span> : null}
           </div>
-          {country === 'US' && !product.priceUsd ? <p className="rounded-2xl border border-yellow-400/20 bg-yellow-500/10 p-3 text-sm text-yellow-100">{t('product.noUsd')}</p> : null}
+          {product.discount?.active ? <p className="rounded-2xl border border-orange-400/25 bg-orange-500/10 p-3 text-sm text-orange-50">{product.discount.label || 'Oferta activa'} · {product.discount.percent}% menos</p> : null}
+          {currency === 'USD' && !product.priceUsd ? <p className="rounded-2xl border border-yellow-400/20 bg-yellow-500/10 p-3 text-sm text-yellow-100">{t('product.noUsd')}</p> : null}
           <div className="flex flex-wrap gap-2">
             {product.isNew ? <span className="badge badge-new text-xs">{t('badge.new')}</span> : null}
             {product.isBestSeller ? <span className="badge badge-hot text-xs">{t('badge.bestSeller')}</span> : null}

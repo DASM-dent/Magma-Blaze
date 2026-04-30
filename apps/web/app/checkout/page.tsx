@@ -2,9 +2,13 @@
 
 import { useMemo, useState } from 'react';
 import { CreditCard, MessageCircle } from 'lucide-react';
+import { toast } from 'sonner';
 import { useCart } from '@/context/CartContext';
 import { useStoreLocale } from '@/context/LocaleContext';
-import { cartAvailabilityWhatsappUrl } from '@/lib/whatsapp';
+import { useAuth } from '@/context/AuthContext';
+import { createSharedCartUrl } from '@/lib/cartShare';
+import { cartOrderWhatsappUrl } from '@/lib/whatsapp';
+import { api } from '@/lib/api';
 
 const rdProvinces = ['Azua','Baoruco','Barahona','Dajabon','Distrito Nacional','Duarte','El Seibo','Elias Piña','Espaillat','Hato Mayor','Hermanas Mirabal','Independencia','La Altagracia','La Romana','La Vega','Maria Trinidad Sanchez','Monseñor Nouel','Monte Cristi','Monte Plata','Pedernales','Peravia','Puerto Plata','Samana','San Cristobal','San Jose de Ocoa','San Juan','San Pedro de Macoris','Sanchez Ramirez','Santiago','Santiago Rodriguez','Santo Domingo','Valverde'];
 const usStates = ['Florida','New York','Texas','California','New Jersey','Pennsylvania','Massachusetts','Georgia','North Carolina','Virginia'];
@@ -17,27 +21,64 @@ function Field({ label, children }: { label:string; children:React.ReactNode }) 
 
 export default function CheckoutPage() {
   const cart = useCart();
+  const { user } = useAuth();
   const { country, language, symbol, t, setCountry } = useStoreLocale();
   const [form, setForm] = useState({ country, province: country === 'RD' ? 'La Vega' : 'Florida', city: country === 'RD' ? 'La Vega' : 'Miami', addressLine: '', promoCode: '', paymentMethodId: '' });
+  const [submitting, setSubmitting] = useState(false);
 
   const provinceOptions = form.country === 'RD' ? rdProvinces : usStates;
   const cityOptions = form.country === 'RD'
     ? (rdCities[form.province] || (form.province ? [form.province] : []))
     : (usCities[form.province] || (form.province ? [form.province] : []));
   const subtotal = useMemo(() => cart.items.reduce((sum, item) => sum + item.unitPrice * item.quantity, 0), [cart.items]);
-  const availabilityUrl = cartAvailabilityWhatsappUrl(
-    cart.items,
-    symbol,
-    subtotal,
-    language,
-    [
-      `${t('checkout.country')}: ${form.country}`,
-      `${t('checkout.province')}: ${form.province}`,
-      `${t('checkout.city')}: ${form.city}`,
-      form.addressLine.trim() ? `${t('checkout.address')}: ${form.addressLine.trim()}` : '',
-      form.promoCode.trim() ? `${t('checkout.promo')}: ${form.promoCode.trim()}` : '',
-    ],
-  );
+  const sharedCartUrl = useMemo(() => {
+    if (typeof window === 'undefined') return '';
+    return createSharedCartUrl(cart.items, window.location.origin, symbol, language);
+  }, [cart.items, language, symbol]);
+  const checkoutLines = (orderId?: string) => [
+    orderId ? `${language === 'en' ? 'Internal order' : 'Pedido interno'}: ${orderId}` : '',
+    `${t('checkout.country')}: ${form.country}`,
+    `${t('checkout.province')}: ${form.province}`,
+    `${t('checkout.city')}: ${form.city}`,
+    form.addressLine.trim() ? `${t('checkout.address')}: ${form.addressLine.trim()}` : '',
+    form.promoCode.trim() ? `${t('checkout.promo')}: ${form.promoCode.trim()}` : '',
+    language === 'en' ? 'Status: pending store confirmation' : 'Estado: pendiente de confirmacion de la tienda',
+  ];
+  const submitOrder = async () => {
+    if (!cart.items.length || submitting) return;
+    if (!user) {
+      toast.error(language === 'en' ? 'Log in before placing the order.' : 'Inicia sesion antes de hacer el pedido.');
+      window.location.href = '/login?next=/checkout';
+      return;
+    }
+    if (form.addressLine.trim().length < 5) {
+      toast.error(language === 'en' ? 'Add a delivery address.' : 'Agrega una direccion de entrega.');
+      return;
+    }
+    setSubmitting(true);
+    try {
+      const order:any = await api('/orders/checkout', {
+        method:'POST',
+        body:JSON.stringify({
+          items:cart.items.map(item=>({productId:item.productId,variantId:item.variant?.id||undefined,quantity:item.quantity})),
+          country:form.country,
+          province:form.province,
+          city:form.city,
+          addressLine:form.addressLine,
+          promoCode:form.promoCode||undefined,
+          paymentMethodId:form.paymentMethodId||undefined,
+        }),
+      });
+      const orderUrl = cartOrderWhatsappUrl(cart.items, symbol, order.total || subtotal, language, sharedCartUrl, checkoutLines(order.id));
+      toast.success(language === 'en' ? 'Order created. Opening WhatsApp...' : 'Pedido creado. Abriendo WhatsApp...');
+      cart.clearCart();
+      window.open(orderUrl, '_blank', 'noopener,noreferrer');
+    } catch (error:any) {
+      toast.error(error.message || (language === 'en' ? 'Could not create the order.' : 'No se pudo crear el pedido.'));
+    } finally {
+      setSubmitting(false);
+    }
+  };
 
   return (
     <div className="min-h-screen pt-24 px-4 md:px-6 pb-20">
@@ -71,15 +112,14 @@ export default function CheckoutPage() {
             {form.country === 'US' && (
               <p className="md:col-span-2 rounded-2xl border border-orange-500/30 bg-orange-500/10 p-4 text-sm text-orange-100">{t('checkout.usNotice')}</p>
             )}
-            <a
-              className={`btn-ember justify-center md:col-span-2 ${cart.items.length === 0 ? 'pointer-events-none opacity-40' : ''}`}
-              href={availabilityUrl}
-              target="_blank"
-              rel="noreferrer"
-              aria-disabled={cart.items.length === 0}
+            <button
+              type="button"
+              className={`btn-whatsapp justify-center md:col-span-2 ${cart.items.length === 0 ? 'pointer-events-none opacity-40' : ''}`}
+              onClick={submitOrder}
+              disabled={cart.items.length === 0 || submitting}
             >
-              <MessageCircle size={18} /> {t('checkout.verifyAvailability')}
-            </a>
+              <MessageCircle size={18} /> {submitting ? (language === 'en' ? 'Creating order...' : 'Creando pedido...') : t('checkout.verifyAvailability')}
+            </button>
             <p className="md:col-span-2 rounded-2xl border border-white/10 bg-black/25 p-4 text-sm text-white/65">{t('checkout.whatsappNotice')}</p>
           </div>
         </section>
