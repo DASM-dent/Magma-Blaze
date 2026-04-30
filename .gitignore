@@ -1,0 +1,36 @@
+# Dependencies
+node_modules/
+
+# Next.js
+.next/
+.next-dev/
+out/
+
+# Builds
+dist/
+build/
+
+# Env files
+.env
+.env.local
+.env.production
+apps/*/.env.production
+.env.*.local
+
+# Database
+*.db
+apps/api/prisma/dev.db*
+
+# Logs
+logs/
+*.log
+
+# Cache
+.cache
+.vercel
+
+# TypeScript
+*.tsbuildinfo
+
+# OS
+.DS_Store

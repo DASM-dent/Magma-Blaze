@@ -1,0 +1,23 @@
+{
+  "name": "magma-blaze-starter",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "concurrently \"npm run dev:api\" \"npm run dev:web\"",
+    "dev:api": "npm --workspace apps/api run dev",
+    "dev:web": "npm --workspace apps/web run dev",
+    "build": "npm --workspace apps/api run build && npm --workspace apps/web run build",
+    "db:generate": "npm --workspace apps/api run prisma:generate",
+    "db:migrate": "npm --workspace apps/api run prisma:migrate",
+    "db:push": "npm --workspace apps/api run prisma:push",
+    "db:seed": "npm --workspace apps/api run prisma:seed",
+    "db:studio": "npm --workspace apps/api run prisma:studio",
+    "db:reset": "npm --workspace apps/api run prisma:reset"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  }
+}
