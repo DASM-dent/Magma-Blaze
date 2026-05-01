@@ -1,8 +1,7 @@
-const useStaticExport = process.env.NEXT_OUTPUT_EXPORT === "1";
-
+/** @type {import('next').NextConfig} */
 const nextConfig = {
-  ...(useStaticExport ? { output: "export" } : {}),
-  distDir: process.env.NEXT_DIST_DIR || ".next",
+  output: "export",
+  trailingSlash: true,
   images: {
     unoptimized: true,
     remotePatterns: [
