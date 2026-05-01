@@ -27,7 +27,7 @@ export default function Page() {
                 transition={{ duration: 0.24, delay: index * 0.03 }}
                 className="overflow-hidden rounded-2xl border border-white/10 bg-white/[.035]"
               >
-                <Link href={`/producto/${product.slug}`} className="block">
+                <Link href={`/producto?slug=${encodeURIComponent(product.slug)}`} className="block">
                   <div className="relative aspect-square bg-white/[.04]">
                     {product.imageUrl || product.mainImage ? (
                       <img src={product.imageUrl || product.mainImage || ''} alt={product.name} className="h-full w-full object-cover" />

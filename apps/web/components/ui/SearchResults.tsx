@@ -53,7 +53,7 @@ export default function SearchResults({ query, results, searching, onClose }: Pr
         {results.map((r) => (
           <Link
             key={r.id}
-            href={`/producto/${r.slug}`}
+            href={`/producto?slug=${encodeURIComponent(r.slug)}`}
             onClick={onClose}
             className="flex items-center gap-4 rounded p-3 transition-colors hover:bg-white/5"
           >

@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react';
 import { useRouter } from 'next/navigation';
 import { AnimatePresence, motion } from 'framer-motion';
-import { Bell, ChevronRight, CreditCard, Eye, EyeOff, Heart, HelpCircle, Languages, LogOut, MapPin, MessageSquare, PackageCheck, Send, ShieldCheck, Star, Ticket, Trash2, UserRound, Wallet } from 'lucide-react';
+import { AlertCircle, Bell, CheckCircle2, ChevronRight, CreditCard, Eye, EyeOff, Heart, HelpCircle, Info, Languages, LogOut, MapPin, MessageSquare, PackageCheck, Send, ShieldCheck, Star, Ticket, Trash2, TriangleAlert, UserRound, Wallet } from 'lucide-react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import { useAuth } from '@/context/AuthContext';
@@ -13,6 +13,51 @@ import { useStoreLocale } from '@/context/LocaleContext';
 
 type AccountSection = 'orders' | 'reviews' | 'profile' | 'coupons' | 'credit' | 'favorites' | 'addresses' | 'locale' | 'payments' | 'security' | 'notifications' | 'messages' | 'help';
 type OrderFilter = 'all' | 'processing' | 'shipped' | 'delivered' | 'returns';
+type AuthNoticeTone = 'success' | 'info' | 'warning' | 'error';
+type AuthNotice = { tone: AuthNoticeTone; title: string; message: string; fields?: string[] };
+
+const authNoticeStyles: Record<AuthNoticeTone, { wrap: string; icon: string; Icon: typeof AlertCircle }> = {
+  success: { wrap: 'border-emerald-400/35 bg-emerald-500/10 text-emerald-100', icon: 'bg-emerald-500/15 text-emerald-200', Icon: CheckCircle2 },
+  info: { wrap: 'border-orange-400/35 bg-orange-500/10 text-orange-100', icon: 'bg-orange-500/15 text-orange-200', Icon: Info },
+  warning: { wrap: 'border-yellow-400/35 bg-yellow-500/10 text-yellow-100', icon: 'bg-yellow-500/15 text-yellow-100', Icon: TriangleAlert },
+  error: { wrap: 'border-red-400/35 bg-red-500/10 text-red-100', icon: 'bg-red-500/15 text-red-200', Icon: AlertCircle },
+};
+
+function authFieldMessages(error: unknown, t: (key: string) => string) {
+  const errors = ((error as any)?.errors || (error as any)?.data?.errors || {}) as Record<string, string[] | undefined>;
+  const fields: string[] = [];
+  if (errors.name?.length) fields.push(t('auth.error.nameFormat'));
+  if (errors.email?.length) fields.push(t('auth.error.emailFormat'));
+  if (errors.password?.length) fields.push(t('auth.error.passwordFormat'));
+  if (errors.code?.length) fields.push(t('auth.error.codeFormat'));
+  if (errors.confirmPassword?.length) fields.push(t('auth.error.confirmPasswordFormat'));
+  return fields;
+}
+
+function authErrorNotice(error: unknown, mode: 'login' | 'register', t: (key: string) => string): AuthNotice {
+  const status = Number((error as any)?.status ?? -1);
+  const raw = error instanceof Error ? error.message : '';
+  const fields = authFieldMessages(error, t);
+
+  if (status === 0) return { tone: 'warning', title: t('auth.notice.warning'), message: t('auth.error.network') };
+  if (status === 408) return { tone: 'warning', title: t('auth.notice.warning'), message: t('auth.error.timeout') };
+  if (fields.length) return { tone: 'error', title: t('auth.error.checkFields'), message: t('auth.error.fixFields'), fields };
+  if (mode === 'register' && status === 409) return { tone: 'warning', title: t('auth.notice.warning'), message: t('auth.error.emailExists') };
+  if (mode === 'login' && status === 401) return { tone: 'error', title: t('auth.notice.error'), message: t('auth.error.invalidCredentials') };
+  if (status === 403 && /verificar|verify/i.test(raw)) return { tone: 'warning', title: t('auth.notice.warning'), message: t('auth.error.verifyEmail') };
+  if (status === 403 && /bloquead|blocked/i.test(raw)) return { tone: 'error', title: t('auth.notice.error'), message: t('auth.error.blocked') };
+  if (status === 423) return { tone: 'warning', title: t('auth.notice.warning'), message: t('auth.error.locked') };
+  return { tone: 'error', title: t('auth.notice.error'), message: raw || t('auth.error.generic') };
+}
+
+function codeErrorNotice(error: unknown, t: (key: string) => string): AuthNotice {
+  const status = Number((error as any)?.status ?? -1);
+  const fields = authFieldMessages(error, t);
+  if (fields.length) return { tone: 'error', title: t('auth.error.checkFields'), message: t('auth.error.fixFields'), fields };
+  if (status === 0) return { tone: 'warning', title: t('auth.notice.warning'), message: t('auth.error.network') };
+  if (status === 408) return { tone: 'warning', title: t('auth.notice.warning'), message: t('auth.error.timeout') };
+  return { tone: 'error', title: t('auth.notice.error'), message: t('auth.error.invalidCodeDetail') };
+}
 
 const menu: { key: AccountSection; icon: ReactNode }[] = [
   { key: 'orders', icon: <PackageCheck size={19} /> },
@@ -69,6 +114,22 @@ function Field({ label, children, hint }: { label: string; children: ReactNode; 
   return <label className="block"><span className="mb-2 block text-sm font-medium text-white/60">{label}</span>{children}{hint && <span className="mt-1 block text-xs text-white/40">{hint}</span>}</label>;
 }
 
+function AuthNoticeBox({ notice }: { notice: AuthNotice }) {
+  const style = authNoticeStyles[notice.tone];
+  const Icon = style.Icon;
+  return (
+    <div role={notice.tone === 'error' ? 'alert' : 'status'} className={`rounded-2xl border p-4 text-sm shadow-[0_18px_50px_rgba(0,0,0,.18)] ${style.wrap}`}>
+      <div className="flex gap-3">
+        <span className={`grid h-9 w-9 shrink-0 place-items-center rounded-2xl ${style.icon}`}><Icon size={18} /></span>
+        <div className="min-w-0 flex-1">
+          <b className="block text-base text-white">{notice.title}</b>
+          <p className="mt-1 leading-relaxed">{notice.message}</p>
+          {notice.fields?.length ? <ul className="mt-3 list-disc space-y-1 pl-5">{notice.fields.map(field => <li key={field}>{field}</li>)}</ul> : null}
+        </div>
+      </div>
+    </div>
+  );
+}
 function Empty({ title, text }: { title: string; text: string }) {
   return <div className="rounded-2xl border border-dashed border-white/15 p-8 text-center"><h3 className="text-lg font-semibold text-white">{title}</h3><p className="mt-2 text-sm text-white/45">{text}</p></div>;
 }
@@ -109,6 +170,7 @@ export default function CuentaPage() {
   const [codeMode, setCodeMode] = useState<'none' | 'login' | 'email'>('none');
   const [code, setCode] = useState('');
   const [msg, setMsg] = useState('');
+  const [authNotice, setAuthNotice] = useState<AuthNotice | null>(null);
   const [loading, setLoading] = useState(false);
 
   const [profileForm, setProfileForm] = useState({ name: '', whatsapp: '', preferredContact: 'SYSTEM', country: 'RD', region: '', language: 'es', currency: 'DOP', notifyOrders: true, notifyPromos: false, notifySupport: true, notifyDrops: true });
@@ -275,6 +337,7 @@ export default function CuentaPage() {
   const switchMode = (next: 'login' | 'register') => {
     setMode(next);
     setMsg('');
+    setAuthNotice(null);
     setCodeMode('none');
     setPassword('');
     if (next === 'register') {
@@ -287,34 +350,35 @@ export default function CuentaPage() {
     e.preventDefault();
     setLoading(true);
     setMsg('');
+    setAuthNotice(null);
     try {
       if (mode === 'register') {
         const data: any = await register(name, email, password, enableEmailCodeLogin);
         if (data?.requiresEmailVerification) {
           setCodeMode('email');
-          setMsg(t('auth.createdVerify'));
+          setAuthNotice({ tone: 'info', title: t('auth.notice.info'), message: t('auth.createdVerify') });
         } else {
           setMode('login');
           setPassword('');
-          setMsg(t('auth.createdLogin'));
+          setAuthNotice({ tone: 'success', title: t('auth.notice.success'), message: t('auth.createdLogin') });
         }
       } else {
         const result: any = await login(email, password);
         if (result?.requiresCode) {
           setChallengeId(result.challengeId);
           setCodeMode('login');
-          setMsg(t('auth.loginCodeSent'));
+          setAuthNotice({ tone: 'info', title: t('auth.notice.info'), message: t('auth.loginCodeSent') });
           return;
         }
         if (result?.requiresEmailVerification) {
           setCodeMode('email');
-          setMsg(t('auth.mustVerify'));
+          setAuthNotice({ tone: 'warning', title: t('auth.notice.warning'), message: t('auth.mustVerify') });
           return;
         }
         if (result?.user?.role !== 'CUSTOMER') router.push('/dixnissowner');
       }
-    } catch {
-      setMsg(t('auth.actionError'));
+    } catch (error) {
+      setAuthNotice(authErrorNotice(error, mode, t));
     } finally {
       setLoading(false);
     }
@@ -324,6 +388,7 @@ export default function CuentaPage() {
     e.preventDefault();
     setLoading(true);
     setMsg('');
+    setAuthNotice(null);
     try {
       if (codeMode === 'login') {
         await verifyLoginCode(challengeId, code);
@@ -336,10 +401,10 @@ export default function CuentaPage() {
         setMode('login');
         setCode('');
         setPassword('');
-        setMsg(t('auth.emailVerified'));
+        setAuthNotice({ tone: 'success', title: t('auth.notice.success'), message: t('auth.emailVerified') });
       }
-    } catch {
-      setMsg(t('auth.invalidCode'));
+    } catch (error) {
+      setAuthNotice(codeErrorNotice(error, t));
     } finally {
       setLoading(false);
     }
@@ -348,11 +413,12 @@ export default function CuentaPage() {
   async function resend() {
     setLoading(true);
     setMsg('');
+    setAuthNotice(null);
     try {
       const data = await resendVerification(email);
-      setMsg(data?.message || t('auth.codeResent'));
-    } catch {
-      setMsg(t('auth.resendError'));
+      setAuthNotice({ tone: 'info', title: t('auth.notice.info'), message: data?.message || t('auth.codeResent') });
+    } catch (error) {
+      setAuthNotice(authErrorNotice(error, mode, t));
     } finally {
       setLoading(false);
     }
@@ -445,7 +511,7 @@ export default function CuentaPage() {
 
             {section === 'messages' && <div className="space-y-5"><h2 className="text-2xl font-semibold">{t('account.messages')}</h2>{messageQuery.data?.length ? <div className="space-y-3">{messageQuery.data.map((m: any) => <div key={`${m.type}-${m.id}`} className="rounded-2xl border border-white/10 bg-white/[.035] p-4"><div className="flex flex-wrap items-center justify-between gap-2"><b>{m.title}</b><span className="text-xs text-white/35">{new Date(m.createdAt).toLocaleString(language === 'en' ? 'en-US' : 'es-DO')}</span></div><p className="mt-2 text-sm text-white/60">{m.body}</p><p className="mt-2 text-xs text-orange-200">{m.from}</p></div>)}</div> : <Empty title={t('messages.emptyTitle')} text={t('messages.emptyText')} />}{ticketQuery.data?.length ? <div className="mt-6 space-y-4"><h3 className="text-lg font-semibold">{t('messages.tickets')}</h3>{ticketQuery.data.map((ticket: any) => <div key={ticket.id} className="rounded-2xl border border-white/10 bg-black/25 p-4"><div className="flex flex-wrap justify-between gap-2"><b>{ticket.subject}</b><span className="text-sm text-orange-200">{statusLabels[ticket.status] || ticket.status}</span></div><div className="mt-3 space-y-2">{ticket.messages.map((m: any) => <p key={m.id} className={`rounded-xl px-3 py-2 text-sm ${m.fromStaff ? 'bg-orange-500/10 text-orange-50' : 'bg-white/[.05] text-white/60'}`}>{m.body}</p>)}</div><div className="mt-3 flex flex-col gap-2 sm:flex-row"><input className="input-dark" value={replyText[ticket.id] || ''} onChange={e => setReplyText({ ...replyText, [ticket.id]: e.target.value })} placeholder={t('messages.replyPlaceholder')} /><button className="btn-ember" onClick={() => replyTicket.mutate({ id: ticket.id, body: replyText[ticket.id] || '' })}>{t('common.send')}</button></div></div>)}</div> : null}</div>}
 
-            {section === 'favorites' && <div className="space-y-5"><h2 className="text-2xl font-semibold">{t('account.favorites')}</h2>{favorites.length ? <div className="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-4">{favorites.map((product) => <article key={product.id} className="overflow-hidden rounded-2xl border border-white/10 bg-white/[.035]"><Link href={`/producto/${product.slug}`}><div className="aspect-square bg-white/[.04]">{product.imageUrl || product.mainImage ? <img src={product.imageUrl || product.mainImage || ''} alt={product.name} className="h-full w-full object-cover" /> : <div className="grid h-full place-items-center text-white/25"><Heart /></div>}</div><div className="p-4"><h3 className="line-clamp-2 min-h-[44px] text-sm font-semibold leading-snug">{product.name}</h3>{product.description && <p className="mt-2 line-clamp-2 text-xs text-white/45">{product.description}</p>}<p className="mt-3 font-bold">{formatPrice(product)}</p></div></Link><button onClick={() => removeFavorite(product.id)} className="mx-4 mb-4 flex items-center gap-2 rounded-full border border-white/10 px-4 py-2 text-sm text-white/60 hover:text-red-100"><Trash2 size={15} /> {t('favorites.remove')}</button></article>)}</div> : <Empty title={t('favorites.emptyTitle')} text={t('favorites.emptyText')} />}</div>}
+            {section === 'favorites' && <div className="space-y-5"><h2 className="text-2xl font-semibold">{t('account.favorites')}</h2>{favorites.length ? <div className="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-4">{favorites.map((product) => <article key={product.id} className="overflow-hidden rounded-2xl border border-white/10 bg-white/[.035]"><Link href={`/producto?slug=${encodeURIComponent(product.slug)}`}><div className="aspect-square bg-white/[.04]">{product.imageUrl || product.mainImage ? <img src={product.imageUrl || product.mainImage || ''} alt={product.name} className="h-full w-full object-cover" /> : <div className="grid h-full place-items-center text-white/25"><Heart /></div>}</div><div className="p-4"><h3 className="line-clamp-2 min-h-[44px] text-sm font-semibold leading-snug">{product.name}</h3>{product.description && <p className="mt-2 line-clamp-2 text-xs text-white/45">{product.description}</p>}<p className="mt-3 font-bold">{formatPrice(product)}</p></div></Link><button onClick={() => removeFavorite(product.id)} className="mx-4 mb-4 flex items-center gap-2 rounded-full border border-white/10 px-4 py-2 text-sm text-white/60 hover:text-red-100"><Trash2 size={15} /> {t('favorites.remove')}</button></article>)}</div> : <Empty title={t('favorites.emptyTitle')} text={t('favorites.emptyText')} />}</div>}
 
             {section === 'coupons' && <div className="space-y-5"><h2 className="text-2xl font-semibold">{t('account.coupons')}</h2><Empty title={t('coupons.emptyTitle')} text={t('coupons.emptyText')} /></div>}
             {section === 'credit' && <div className="space-y-5"><h2 className="text-2xl font-semibold">{t('account.credit')}</h2><Empty title={t('credit.emptyTitle')} text={t('credit.emptyText')} /></div>}
@@ -478,7 +544,7 @@ export default function CuentaPage() {
           </> : <><p className="text-sm text-white/55">{t('auth.codeSent')} <b>{email}</b>.</p><input className="input-dark text-center tracking-[.5em]" placeholder="000000" inputMode="numeric" value={code} onChange={e => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))} /></>}
           <button disabled={loading} className="btn-ember w-full justify-center">{loading ? `${t('common.processing')}...` : codeMode === 'none' ? (mode === 'login' ? t('auth.enter') : t('auth.createAccount')) : t('auth.verifyCode')}</button>
           {codeMode === 'email' && <button type="button" disabled={loading} onClick={resend} className="w-full rounded-2xl border border-white/10 px-4 py-3 text-sm text-white/60 hover:text-white">{t('auth.resendCode')}</button>}
-          {msg && <p className="rounded-2xl border border-orange-400/30 bg-orange-500/10 p-3 text-sm text-orange-100">{msg}</p>}
+          {authNotice && <AuthNoticeBox notice={authNotice} />}
         </div>
       </form>
     </div>

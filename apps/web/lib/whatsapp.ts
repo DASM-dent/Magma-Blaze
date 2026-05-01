@@ -28,7 +28,7 @@ function getDynamicStoreWhatsappUrl(message: string) {
 
 function getProductUrl(slug?: string | null) {
   if (!slug || typeof window === "undefined") return "";
-  return `${window.location.origin}/producto/${slug}`;
+  return `${window.location.origin}/producto?slug=${encodeURIComponent(slug)}`;
 }
 
 export function productAvailabilityWhatsappUrl(product: AvailabilityProduct, language: "es" | "en" = "es") {

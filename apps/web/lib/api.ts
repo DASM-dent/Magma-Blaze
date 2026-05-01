@@ -1,5 +1,24 @@
 const DEFAULT_API_PORT = '4000';
 const CONFIGURED_API_URL = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, '') || '';
+type ApiErrorData = {
+  message?: string;
+  errors?: Record<string, string[]>;
+  [key: string]: unknown;
+};
+
+export class ApiError extends Error {
+  status: number;
+  data: ApiErrorData | null;
+  errors?: Record<string, string[]>;
+
+  constructor(message: string, status: number, data: ApiErrorData | null = null) {
+    super(message);
+    this.name = 'ApiError';
+    this.status = status;
+    this.data = data;
+    this.errors = data?.errors;
+  }
+}
 
 const messages = {
   es: {
@@ -91,7 +110,7 @@ export async function api<T>(path: string, options: RequestInit = {}): Promise<T
           await sleep(250 * attempt);
           continue;
         }
-        throw new Error(data?.message || msg('generic'));
+        throw new ApiError(data?.message || msg('generic'), res.status, data as ApiErrorData | null);
       }
       return data as T;
     } catch (error: any) {
@@ -101,7 +120,7 @@ export async function api<T>(path: string, options: RequestInit = {}): Promise<T
     }
   }
 
-  if ((lastError as { name?: string } | undefined)?.name === 'AbortError') throw new Error(msg('timeout'));
+  if ((lastError as { name?: string } | undefined)?.name === 'AbortError') throw new ApiError(msg('timeout'), 408);
   if (lastError instanceof Error && lastError.message && lastError.message !== 'Failed to fetch') throw lastError;
-  throw new Error(msg('offline'));
+  throw new ApiError(msg('offline'), 0);
 }

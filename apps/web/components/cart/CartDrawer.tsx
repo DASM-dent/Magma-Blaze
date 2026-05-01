@@ -114,7 +114,7 @@ export default function CartDrawer() {
 
                       <div className="min-w-0 flex-1">
                         <Link
-                          href={`/producto/${item.product.slug}`}
+                          href={`/producto?slug=${encodeURIComponent(item.product.slug)}`}
                           onClick={closeCart}
                           className="font-heading line-clamp-2 text-sm leading-tight text-white transition-colors hover:text-ember-DEFAULT"
                         >

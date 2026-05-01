@@ -27,7 +27,7 @@ export default function ModelosPage() {
         {data.photos.map((photo)=><article key={photo.id} className="group overflow-hidden rounded-[2.2rem] border border-white/10 bg-white/[.035]">
           <div className="relative aspect-[4/5] overflow-hidden">
             <img src={photo.imageUrl} alt={photo.product.name} className="h-full w-full object-cover transition duration-700 group-hover:scale-105" />
-            <Link href={'/producto/'+photo.product.slug} className="absolute -translate-x-1/2 -translate-y-1/2" style={{ left:photo.tagX+'%', top:photo.tagY+'%' }}>
+            <Link href={'/producto?slug='+encodeURIComponent(photo.product.slug)} className="absolute -translate-x-1/2 -translate-y-1/2" style={{ left:photo.tagX+'%', top:photo.tagY+'%' }}>
               <span className="relative flex h-6 w-6"><span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-orange-400 opacity-70" /><span className="relative inline-flex h-6 w-6 rounded-full border-2 border-white bg-orange-500 shadow-[0_0_25px_rgba(255,85,0,.7)]" /></span>
               <span className="mt-2 block whitespace-nowrap rounded-full bg-black/80 px-4 py-2 text-xs font-black backdrop-blur hover:bg-orange-500 hover:text-black">{photo.product.name}</span>
             </Link>

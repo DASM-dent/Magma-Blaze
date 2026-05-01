@@ -70,7 +70,7 @@ export default function SharedCartPage() {
         <section className="space-y-3">
           {payload.items.map((item) => (
             <article key={`${item.productId}-${item.variantName || 'base'}`} className="grid gap-4 border border-white/10 bg-white/[.03] p-4 sm:grid-cols-[96px_minmax(0,1fr)_auto]">
-              <Link href={`/producto/${item.slug}`} className="relative block aspect-square overflow-hidden bg-white/[.04]">
+              <Link href={`/producto?slug=${encodeURIComponent(item.slug)}`} className="relative block aspect-square overflow-hidden bg-white/[.04]">
                 {item.image ? (
                   <Image src={item.image} alt={item.name} fill sizes="96px" className="object-cover" />
                 ) : (
@@ -81,7 +81,7 @@ export default function SharedCartPage() {
               </Link>
 
               <div className="min-w-0">
-                <Link href={`/producto/${item.slug}`} className="line-clamp-2 font-heading text-lg font-700 text-white transition hover:text-ember-DEFAULT">
+                <Link href={`/producto?slug=${encodeURIComponent(item.slug)}`} className="line-clamp-2 font-heading text-lg font-700 text-white transition hover:text-ember-DEFAULT">
                   {item.name}
                 </Link>
                 {item.variantName && <p className="mt-1 text-sm text-white/40">{item.variantName}</p>}

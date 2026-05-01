@@ -48,7 +48,7 @@ export default function ProductCard({ product, index = 0 }: { product: Product; 
       className="product-card group"
     >
       {/* Image */}
-      <Link href={`/producto/${product.slug}`} className="block relative aspect-square overflow-hidden">
+      <Link href={`/producto?slug=${encodeURIComponent(product.slug)}`} className="block relative aspect-square overflow-hidden">
         {primaryImage ? (
           <>
             <Image
@@ -134,7 +134,7 @@ export default function ProductCard({ product, index = 0 }: { product: Product; 
 
       {/* Info */}
       <div className="p-4">
-        <Link href={`/producto/${product.slug}`}>
+        <Link href={`/producto?slug=${encodeURIComponent(product.slug)}`}>
           <h3 className="font-heading text-base text-white hover:text-ember-DEFAULT transition-colors line-clamp-2 leading-tight mb-2">
             {product.name}
           </h3>

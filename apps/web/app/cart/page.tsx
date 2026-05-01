@@ -66,7 +66,7 @@ export default function CartPage() {
           <section className="space-y-3">
             {cart.items.map((item) => (
               <article key={item.id} className="grid gap-4 border border-white/10 bg-white/[.03] p-4 sm:grid-cols-[96px_minmax(0,1fr)_auto]">
-                <Link href={`/producto/${item.product.slug}`} className="relative block aspect-square overflow-hidden bg-white/[.04]">
+                <Link href={`/producto?slug=${encodeURIComponent(item.product.slug)}`} className="relative block aspect-square overflow-hidden bg-white/[.04]">
                   {item.product.image ? (
                     <Image
                       src={item.product.image}
@@ -83,7 +83,7 @@ export default function CartPage() {
                 </Link>
 
                 <div className="min-w-0">
-                  <Link href={`/producto/${item.product.slug}`} className="line-clamp-2 font-heading text-lg font-700 text-white transition hover:text-ember-DEFAULT">
+                  <Link href={`/producto?slug=${encodeURIComponent(item.product.slug)}`} className="line-clamp-2 font-heading text-lg font-700 text-white transition hover:text-ember-DEFAULT">
                     {item.product.name}
                   </Link>
                   {item.variant?.name && <p className="mt-1 text-sm text-white/40">{item.variant.name}</p>}
