@@ -6,6 +6,7 @@ import { prisma } from '../prisma.js';
 import { config } from '../config.js';
 import { requireAuth } from '../middleware/auth.js';
 import { generateNumericCode, hashCode, sendMail } from '../email.js';
+import { emailTemplates } from '../emailTemplates.js';
 
 const router = Router();
 
@@ -63,21 +64,11 @@ async function createCode(input: { userId?: string; email: string; purpose: 'EMA
 }
 
 async function sendVerificationEmail(email: string, code: string) {
-  await sendMail({
-    to: email,
-    subject: 'Verifica tu cuenta Magma Blaze',
-    text: `Tu código único de verificación es: ${code}. Expira en 10 minutos. Si no fuiste tú, ignora este correo.`,
-    html: `<div style="font-family:Arial,sans-serif;background:#080605;color:#fff;padding:28px;border-radius:18px"><h2>Verifica tu cuenta Magma Blaze</h2><p>Tu código único es:</p><div style="font-size:32px;font-weight:800;letter-spacing:8px;color:#ff6a1a">${code}</div><p>Expira en 10 minutos. Nunca compartas este código.</p></div>`
-  });
+  await sendMail({ to: email, ...emailTemplates.verificationCode({ code }) });
 }
 
 async function sendLoginCodeEmail(email: string, code: string) {
-  await sendMail({
-    to: email,
-    subject: 'Código de acceso Magma Blaze',
-    text: `Tu código único para iniciar sesión es: ${code}. Expira en 10 minutos. Si no intentaste entrar, cambia tu contraseña.`,
-    html: `<div style="font-family:Arial,sans-serif;background:#080605;color:#fff;padding:28px;border-radius:18px"><h2>Código de acceso Magma Blaze</h2><p>Tu código único es:</p><div style="font-size:32px;font-weight:800;letter-spacing:8px;color:#ff6a1a">${code}</div><p>Expira en 10 minutos. Nunca compartas este código.</p></div>`
-  });
+  await sendMail({ to: email, ...emailTemplates.loginCode({ code }) });
 }
 
 router.post('/register', async (req, res) => {

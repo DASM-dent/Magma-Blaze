@@ -4,18 +4,25 @@ import Link from 'next/link';
 import { motion } from 'framer-motion';
 import { Heart, Trash2 } from 'lucide-react';
 import { useFavorites } from '@/context/FavoritesContext';
+import { useAuth } from '@/context/AuthContext';
 import { useStoreLocale } from '@/context/LocaleContext';
 
 export default function Page() {
-  const { favorites, removeFavorite } = useFavorites();
+  const { favorites, removeFavorite, syncStatus } = useFavorites();
+  const { user } = useAuth();
   const { formatPrice, t } = useStoreLocale();
+  const syncLabel = user ? (syncStatus === 'syncing' ? t('favorites.syncing') : syncStatus === 'error' ? t('favorites.syncError') : t('favorites.synced')) : t('favorites.localOnly');
+  const syncClass = user && syncStatus === 'synced' ? 'border-emerald-400/25 bg-emerald-500/10 text-emerald-100' : syncStatus === 'error' ? 'border-yellow-400/25 bg-yellow-500/10 text-yellow-100' : 'border-white/10 bg-white/[.04] text-white/55';
 
   return (
     <section className="min-h-screen px-4 pt-28 pb-16 text-white md:px-6">
       <div className="mx-auto max-w-7xl">
         <p className="text-sm text-white/45">{t("account.title")} / {t("favorites.title")}</p>
         <h1 className="mt-2 text-3xl font-semibold md:text-5xl">{t("favorites.title")}</h1>
-        <p className="mt-3 max-w-2xl text-sm text-white/50">{t("favorites.subtitle")}</p>
+        <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <p className="max-w-2xl text-sm text-white/50">{t("favorites.subtitle")}</p>
+          <span className={`inline-flex w-fit rounded-full border px-4 py-2 text-xs ${syncClass}`}>{syncLabel}</span>
+        </div>
 
         {favorites.length ? (
           <div className="mt-8 grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-4">

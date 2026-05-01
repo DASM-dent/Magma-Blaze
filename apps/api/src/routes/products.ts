@@ -163,6 +163,63 @@ router.get('/', async (req, res) => {
   res.json({ items: products.map(toUiProduct), pagination: { page, limit, total, totalPages: Math.max(Math.ceil(total / limit), 1) } });
 });
 
+function compactKeys(value: unknown, max = 12) {
+  return String(value || '')
+    .split(',')
+    .map(item => item.trim())
+    .filter(Boolean)
+    .filter((item, index, all) => all.indexOf(item) === index)
+    .slice(0, max);
+}
+
+const productInclude = { category: true, images: { orderBy: { sortOrder: 'asc' as const } }, variants: { orderBy: { sortOrder: 'asc' as const } } };
+
+router.get('/batch', async (req, res) => {
+  const keys = compactKeys(req.query.slugs || req.query.ids, 12);
+  if (!keys.length) return res.json([]);
+  const products = await prisma.product.findMany({
+    where: { OR: [{ slug: { in: keys } }, { id: { in: keys } }] },
+    include: productInclude,
+    take: 12,
+  });
+  const ordered = keys
+    .map(key => products.find(product => product.slug === key || product.id === key))
+    .filter(Boolean)
+    .map(toUiProduct);
+  res.json(ordered);
+});
+
+router.get('/:slug/related', async (req, res) => {
+  const limit = Math.min(Math.max(Number(req.query.limit || 8), 1), 12);
+  const current = await prisma.product.findFirst({
+    where: { OR: [{ slug: req.params.slug }, { id: req.params.slug }] },
+    select: { id: true, categoryId: true },
+  }).catch(() => null);
+  if (!current) return res.json([]);
+
+  const availableWhere = {
+    id: { not: current.id },
+    status: { notIn: ['SOLD_OUT', 'UPCOMING'] },
+    OR: [{ stock: { gt: 0 } }, { variants: { some: { active: true, stock: { gt: 0 } } } }],
+  } as any;
+
+  const sameCategory = await prisma.product.findMany({
+    where: { ...availableWhere, categoryId: current.categoryId },
+    include: productInclude,
+    orderBy: [{ status: 'asc' }, { views: 'desc' }, { createdAt: 'desc' }],
+    take: limit,
+  });
+
+  const excluded = [current.id, ...sameCategory.map(product => product.id)];
+  const fallback = sameCategory.length >= limit ? [] : await prisma.product.findMany({
+    where: { ...availableWhere, id: { notIn: excluded } },
+    include: productInclude,
+    orderBy: [{ views: 'desc' }, { createdAt: 'desc' }],
+    take: limit - sameCategory.length,
+  });
+
+  res.json([...sameCategory, ...fallback].map(toUiProduct));
+});
 router.get('/:slug', async (req, res) => {
   const product = await prisma.product.findFirst({ where: { OR: [{ slug: req.params.slug }, { id: req.params.slug }] }, include: { category: true, images: { orderBy: { sortOrder: 'asc' } }, variants: { orderBy: { sortOrder: 'asc' } } } }).catch(() => null);
   if (!product) return res.status(404).json({ message: 'Producto no encontrado' });

@@ -4,6 +4,7 @@ import bcrypt from 'bcryptjs';
 import { prisma } from '../prisma.js';
 import { requireAuth, requireStaff } from '../middleware/auth.js';
 import { sendMail } from '../email.js';
+import { emailTemplates } from '../emailTemplates.js';
 
 const router = Router();
 router.use(requireAuth, requireStaff);
@@ -447,16 +448,18 @@ router.patch('/orders/:id',async(req,res)=>{
   if(p.data.shipping!==undefined){
     await createOrderEvent(order.id, req.user?.id, 'SHIPPING_PRICE_SENT', 'Tarifa de envío enviada', `Envío: ${order.currency==='USD'?'US$':'RD$'} ${centsToUnit(order.shipping)}. Total: ${order.currency==='USD'?'US$':'RD$'} ${centsToUnit(order.total)}.`, { shipping:centsToUnit(order.shipping), total:centsToUnit(order.total) });
     await notifyCustomer(order.userId, 'Confirma el total de tu pedido', 'Ya actualizamos el costo de envío. Puedes aceptar o cancelar desde Tus pedidos.', '/cuenta', 'HIGH', 'ORDER');
-    await sendMail({to:order.user.email,subject:'Confirma el total de tu pedido - Magma Blaze',text:`Tu pedido ${order.id} ya tiene costo de envío. Total: ${order.currency==='USD'?'US$':'RD$'} ${centsToUnit(order.total)}. Entra a tu cuenta para aceptar o cancelar.`}).catch(()=>null);
+    await sendMail({ to:order.user.email, ...emailTemplates.shippingConfirmation({ orderId:order.id, shipping:centsToUnit(order.shipping), total:centsToUnit(order.total), currency:order.currency }) }).catch(()=>null);
   }
   if(p.data.status){
     const label=ORDER_STATUS_LABELS[p.data.status]||p.data.status;
     await createOrderEvent(order.id, req.user?.id, 'STATUS_CHANGED', `Estado cambiado a ${label}`, p.data.adminNote || undefined, { status:p.data.status });
     await notifyCustomer(order.userId, 'Actualización de pedido', `Tu pedido ahora está: ${label}.`, '/cuenta', 'NORMAL', 'ORDER');
+    await sendMail({ to:order.user.email, ...emailTemplates.orderStatus({ orderId:order.id, statusLabel:label, note:p.data.adminNote }) }).catch(()=>null);
   }
   if(p.data.shippingReference || p.data.shippingInvoiceUrl || p.data.driverName || p.data.deliveryPlace){
     await createOrderEvent(order.id, req.user?.id, 'FULFILLMENT_UPDATED', 'Datos de entrega actualizados', [order.shippingReference&&`Tracking: ${order.shippingReference}`,order.driverName&&`Chofer: ${order.driverName}`,order.deliveryPlace&&`Parada: ${order.deliveryPlace}`].filter(Boolean).join(' · ') || undefined, { shippingReference:order.shippingReference, driverName:order.driverName, deliveryPlace:order.deliveryPlace, hasInvoice:Boolean(order.shippingInvoiceUrl||order.shippingInvoicePdfUrl) });
     await notifyCustomer(order.userId, 'Datos de entrega actualizados', 'Agregamos información de seguimiento o entrega a tu pedido.', '/cuenta', 'NORMAL', 'ORDER');
+    await sendMail({ to:order.user.email, ...emailTemplates.fulfillmentUpdated({ orderId:order.id, tracking:order.shippingReference, driver:order.driverName, place:order.deliveryPlace }) }).catch(()=>null);
   }
   if(p.data.packageNote || p.data.adminNote){
     await createOrderEvent(order.id, req.user?.id, 'NOTE_ADDED', 'Nota administrativa agregada', p.data.adminNote || p.data.packageNote || undefined);
@@ -487,6 +490,7 @@ router.post('/orders/:id/confirm-sale',async(req,res)=>{
     return tx.order.update({where:{id:current.id},data:{status:'PROCESSING',paymentStatus:'CONFIRMED',confirmationStatus:'CONFIRMED',inventoryCommitted:true,confirmedAt:new Date(),shippingStatus:'Venta confirmada'},include:{user:true,items:{include:{product:true,variant:true}},events:{take:8,orderBy:{createdAt:'desc'},include:{user:{select:{id:true,name:true,role:true}}}}}});
   });
   await notifyCustomer(current.userId,'Pedido confirmado','Tu pedido fue confirmado por la tienda y esta en procesamiento.','/cuenta','NORMAL','ORDER');
+  await sendMail({ to:current.user.email, ...emailTemplates.saleConfirmed({ orderId:current.id }) }).catch(()=>null);
   await audit(req.user?.id,`ORDER_SALE_CONFIRMED:${current.id}`,req.ip);
   res.json(toOrder(updated));
 });
@@ -508,6 +512,7 @@ router.post('/orders/:id/cancel-sale',async(req,res)=>{
     return tx.order.update({where:{id:current.id},data:{status:'CANCELLED',paymentStatus:'CANCELLED',confirmationStatus:'CANCELLED',inventoryCommitted:false,cancelledAt:new Date(),shippingStatus:'Venta cancelada'},include:{user:true,items:{include:{product:true,variant:true}},events:{take:8,orderBy:{createdAt:'desc'},include:{user:{select:{id:true,name:true,role:true}}}}}});
   });
   await notifyCustomer(current.userId,'Pedido cancelado','Tu pedido fue cancelado por la tienda.','/cuenta','NORMAL','ORDER');
+  await sendMail({ to:current.user.email, ...emailTemplates.saleCancelled({ orderId:current.id }) }).catch(()=>null);
   await audit(req.user?.id,`ORDER_SALE_CANCELLED:${current.id}`,req.ip);
   res.json(toOrder(updated));
 });
@@ -619,7 +624,10 @@ router.patch('/tickets/:id',async(req,res)=>{
   const data:any={...p.data};
   if(data.status==='CLOSED')data.closedAt=new Date();
   const ticket=await prisma.helpTicket.update({where:{id:req.params.id},data,include:{user:true,assignedTo:true,messages:{orderBy:{createdAt:'asc'},include:{user:{select:{id:true,name:true,role:true}}}}}});
-  if(p.data.status)await notifyCustomer(ticket.userId,'Ticket actualizado',`Tu ticket "${ticket.subject}" ahora está: ${p.data.status}.`,'/cuenta','NORMAL','SUPPORT');
+  if(p.data.status){
+    await notifyCustomer(ticket.userId,'Ticket actualizado',`Tu ticket "${ticket.subject}" ahora está: ${p.data.status}.`,'/cuenta','NORMAL','SUPPORT');
+    await sendMail({ to:ticket.user.email, ...emailTemplates.ticketStatus({ ticketId:ticket.id, subject:ticket.subject, status:p.data.status }) }).catch(()=>null);
+  }
   await audit(req.user?.id,`TICKET_UPDATED:${ticket.id}`,req.ip);
   res.json(publicTicket(ticket));
 });
@@ -631,6 +639,7 @@ router.post('/tickets/:id/messages',async(req,res)=>{
   const message=await prisma.helpTicketMessage.create({data:{ticketId:ticket.id,userId:req.user!.id,body:p.data.body,fromStaff:true},include:{user:{select:{id:true,name:true,role:true}}}});
   await prisma.helpTicket.update({where:{id:ticket.id},data:{status:p.data.status,assignedToId:req.user!.id}});
   await notifyCustomer(ticket.userId,'Respuesta de soporte',`Respondimos tu ticket: ${ticket.subject}`,'/cuenta','NORMAL','SUPPORT');
+  await sendMail({ to:ticket.user.email, ...emailTemplates.ticketReply({ ticketId:ticket.id, subject:ticket.subject, body:p.data.body }) }).catch(()=>null);
   await audit(req.user?.id,`TICKET_REPLIED:${ticket.id}`,req.ip);
   res.status(201).json(message);
 });

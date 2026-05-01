@@ -25,6 +25,8 @@ export const api = {
 export const productApi = {
   list: (params?: Params) => api.get(`/products${qs(params)}`),
   detail: (slug: string) => api.get(`/products/${slug}`),
+  related: (slug: string, limit = 8) => api.get(`/products/${encodeURIComponent(slug)}/related${qs({ limit })}`),
+  batch: (slugs: string[]) => api.get(`/products/batch${qs({ slugs: slugs.join(',') })}`),
   autocomplete: (query: string) => api.get(`/products/autocomplete${qs({ q: query })}`),
 };
 

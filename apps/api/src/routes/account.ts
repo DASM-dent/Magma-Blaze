@@ -3,6 +3,8 @@ import bcrypt from 'bcryptjs';
 import { z } from 'zod';
 import { prisma } from '../prisma.js';
 import { requireAuth } from '../middleware/auth.js';
+import { sendMail } from '../email.js';
+import { emailTemplates } from '../emailTemplates.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -243,6 +245,7 @@ router.post('/tickets', async (req, res) => {
     include:{ user:true, messages:{ orderBy:{ createdAt:'asc' }, include:{ user:{ select:{ id:true, name:true, role:true } } } } },
   });
   await notifyStaff('support', 'Nuevo ticket de ayuda', `${ticket.user.name} abrió: ${ticket.subject}`, '/admin', 'HIGH', 'SUPPORT');
+  await sendMail({ to:req.user!.email, ...emailTemplates.ticketCreated({ ticketId:ticket.id, subject:ticket.subject }) }).catch(()=>null);
   res.status(201).json(publicTicket(ticket));
 });
 

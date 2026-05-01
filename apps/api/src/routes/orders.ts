@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { prisma } from '../prisma.js';
 import { requireAuth } from '../middleware/auth.js';
 import { sendMail } from '../email.js';
+import { emailTemplates } from '../emailTemplates.js';
 const router = Router();
 
 const unitToCents = (v:number)=>Math.round(Number(v||0)*100);
@@ -116,6 +117,7 @@ router.post('/checkout', requireAuth, async (req, res) => {
     return created;
   });
   await notifyStaff('orders', 'Pedido pendiente de confirmacion', `El pedido ${order.id} llego por WhatsApp. Confirma el pago antes de descontar inventario.`, '/dixnissowner', 'HIGH', 'ORDER');
+  await sendMail({ to:req.user!.email, ...emailTemplates.orderReceived({ orderId:order.id, total:centsToUnit(order.total), currency:order.currency }) }).catch(()=>null);
   res.status(201).json(toOrder(order));
 });
 

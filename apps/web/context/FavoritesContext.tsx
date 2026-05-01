@@ -15,8 +15,12 @@ export type FavoriteProduct = {
   mainImage?: string | null;
 };
 
+type FavoriteSyncStatus = 'local' | 'syncing' | 'synced' | 'error';
+
 type FavoritesContextValue = {
   favorites: FavoriteProduct[];
+  syncStatus: FavoriteSyncStatus;
+  lastSyncedAt: string | null;
   isFavorite: (id: string) => boolean;
   toggleFavorite: (product: FavoriteProduct) => void;
   removeFavorite: (id: string) => void;
@@ -97,6 +101,8 @@ export function FavoritesProvider({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
   const [favorites, setFavorites] = useState<FavoriteProduct[]>([]);
   const [hydrated, setHydrated] = useState(false);
+  const [syncStatus, setSyncStatus] = useState<FavoriteSyncStatus>('local');
+  const [lastSyncedAt, setLastSyncedAt] = useState<string | null>(null);
 
   useEffect(() => {
     setFavorites(readStoredFavorites());
@@ -109,18 +115,27 @@ export function FavoritesProvider({ children }: { children: React.ReactNode }) {
   }, [favorites, hydrated]);
 
   useEffect(() => {
-    if (!user || !hydrated) return;
+    if (!hydrated) return;
+    if (!user) {
+      setSyncStatus('local');
+      return;
+    }
     let cancelled = false;
     async function syncFavorites() {
+      setSyncStatus('syncing');
       try {
         const serverItems = await api<any[]>('/account/favorites');
         const serverFavorites = serverItems.map(normalizeFavorite).filter(Boolean) as FavoriteProduct[];
         const localFavorites = readStoredFavorites();
         const missingLocal = localFavorites.filter(local => !serverFavorites.some(server => server.id === local.id));
-        await Promise.all(missingLocal.map(item => api('/account/favorites', { method:'POST', body:JSON.stringify({ productId:item.id }) }).catch(() => null)));
-        if (!cancelled) setFavorites(uniqueFavorites([...missingLocal, ...serverFavorites]));
+        await Promise.all(missingLocal.map(item => api('/account/favorites', { method: 'POST', body: JSON.stringify({ productId: item.id }) }).catch(() => null)));
+        if (!cancelled) {
+          setFavorites(uniqueFavorites([...missingLocal, ...serverFavorites]));
+          setSyncStatus('synced');
+          setLastSyncedAt(new Date().toISOString());
+        }
       } catch {
-        // Local favorites still work when the API is offline.
+        if (!cancelled) setSyncStatus('error');
       }
     }
     syncFavorites();
@@ -137,18 +152,26 @@ export function FavoritesProvider({ children }: { children: React.ReactNode }) {
       return nextFavorite ? [nextFavorite, ...current] : current;
     });
     if (user) {
+      setSyncStatus('syncing');
       const path = exists ? `/account/favorites/${product.id}` : '/account/favorites';
-      const options = exists ? { method:'DELETE' } : { method:'POST', body:JSON.stringify({ productId:product.id }) };
-      api(path, options).catch(() => null);
+      const options = exists ? { method: 'DELETE' } : { method: 'POST', body: JSON.stringify({ productId: product.id }) };
+      api(path, options)
+        .then(() => { setSyncStatus('synced'); setLastSyncedAt(new Date().toISOString()); })
+        .catch(() => setSyncStatus('error'));
     }
   }, [favorites, user]);
 
   const removeFavorite = useCallback((id: string) => {
     setFavorites((current) => current.filter((item) => item.id !== id));
-    if (user) api(`/account/favorites/${id}`, { method:'DELETE' }).catch(() => null);
+    if (user) {
+      setSyncStatus('syncing');
+      api(`/account/favorites/${id}`, { method: 'DELETE' })
+        .then(() => { setSyncStatus('synced'); setLastSyncedAt(new Date().toISOString()); })
+        .catch(() => setSyncStatus('error'));
+    }
   }, [user]);
 
-  const value = useMemo(() => ({ favorites, isFavorite, toggleFavorite, removeFavorite }), [favorites, isFavorite, toggleFavorite, removeFavorite]);
+  const value = useMemo(() => ({ favorites, syncStatus, lastSyncedAt, isFavorite, toggleFavorite, removeFavorite }), [favorites, syncStatus, lastSyncedAt, isFavorite, toggleFavorite, removeFavorite]);
 
   return <FavoritesContext.Provider value={value}>{children}</FavoritesContext.Provider>;
 }

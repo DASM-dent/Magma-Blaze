@@ -3,7 +3,7 @@
 import { ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { api } from '@/lib/api';
+import { API_URL, api } from '@/lib/api';
 import { useAuth } from '@/context/AuthContext';
 import { Activity, Bell, Boxes, CalendarDays, Check, ChevronDown, Eye, FileText, Flame, LayoutDashboard, LifeBuoy, Lock, LogOut, Moon, PieChart, Plus, Search, Settings, ShieldCheck, ShoppingBag, Sun, Tag, Trash2, Truck, Users, Wallet } from 'lucide-react';
 
@@ -29,6 +29,15 @@ const slugify=(v:string)=>v.toLowerCase().normalize('NFD').replace(/[\u0300-\u03
 const notificationTypeLabels:any={ORDER:'Pedidos',SUPPORT:'Ayuda',SALES:'Ventas',INVENTORY:'Inventario',SYSTEM:'Sistema'};
 const notificationSectionLabels:any={orders:'Pedidos',products:'Productos',support:'Ayuda',sales:'Ventas',inventory:'Inventario',users:'Usuarios',shipping:'Envios',notifications:'Sistema'};
 const notificationSummaryDefault={total:0,read:0,byType:{},byPriority:{},bySection:{}} as any;
+function adminDashboardError(error: unknown) {
+  const status = Number((error as any)?.status || 0);
+  const detail = error instanceof Error ? error.message : '';
+  if (status === 401) return { title:'Sesión vencida', body:'Tu sesión administrativa ya no es válida. Inicia sesión otra vez para continuar.', detail };
+  if (status === 403) return { title:'Sin permiso', body:'Tu usuario no tiene permiso para cargar el dashboard administrativo.', detail };
+  if (status === 408) return { title:'API lenta', body:'La API tardó demasiado en responder. Intenta de nuevo en unos segundos.', detail };
+  if (status === 0) return { title:'API no disponible', body:`No se pudo conectar con la API configurada en ${API_URL}. Confirma que npm run dev siga corriendo.`, detail };
+  return { title:'No se pudo cargar el panel', body: detail || 'La API respondió con un error inesperado al cargar el dashboard.', detail };
+}
 function Field({label,children,hint}:{label:string;children:ReactNode;hint?:string}){return <label className="admin-field block"><span className="admin-field-label mb-2 block text-xs font-bold uppercase tracking-[.12em]">{label}</span>{children}{hint&&<span className="admin-field-hint mt-1 block text-xs">{hint}</span>}</label>}
 
 type AdminSelectOption={value:string;label:ReactNode;disabled?:boolean};
@@ -547,21 +556,28 @@ function UsersTabV2(){
 
 export default function Admin(){
   const [tab,setTab]=useState<Tab>('overview');
-  const {user}=useAuth();
+  const {user,logout}=useAuth();
   const visibleTabs=useMemo(()=>tabs.filter(t=>user?.role==='ADMIN'||user?.permissions?.includes(t.permission)),[user]);
   const canDashboard=Boolean(user&&(user.role==='ADMIN'||user.permissions?.includes('dashboard')));
   const {data,isLoading,error}=useQuery({queryKey:['admin-dashboard'],queryFn:()=>api<any>('/admin/dashboard'),retry:false,enabled:canDashboard});
+  const dashboardError=error?adminDashboardError(error):null;
 
   useEffect(()=>{
     if(user&&visibleTabs.length&&!visibleTabs.some(t=>t.key===tab))setTab(visibleTabs[0].key);
   },[user,visibleTabs,tab]);
+  useEffect(()=>{
+    if(Number((error as any)?.status)===401){
+      toast.error('Tu sesión venció. Inicia sesión nuevamente.');
+      logout();
+    }
+  },[error,logout]);
 
   if(!user)return <div className="grid min-h-screen place-items-center bg-black text-white"><div className="rounded-3xl border border-white/10 p-8 text-center"><h1 className="text-2xl font-bold">Inicia sesión</h1><a href="/login?next=/dixnissowner" className="btn-ember mt-5 inline-flex">Continuar</a></div></div>;
   if(user.role==='CUSTOMER'||!visibleTabs.length)return <div className="grid min-h-screen place-items-center bg-black text-white">No tienes acceso a esta sección.</div>;
 
   return <Shell tab={tab} setTab={setTab}>
     {canDashboard&&isLoading&&<p className="text-white/45">Cargando panel...</p>}
-    {canDashboard&&error&&<div className="rounded-2xl border border-red-400/30 bg-red-500/10 p-5">No se pudo cargar el panel. Revisa que la API esté corriendo en http://localhost:4000 y que tu sesión siga activa.</div>}
+    {canDashboard&&dashboardError&&<div className="rounded-2xl border border-red-400/30 bg-red-500/10 p-5"><h2 className="text-lg font-bold text-red-100">{dashboardError.title}</h2><p className="mt-2 text-sm text-red-50/80">{dashboardError.body}</p>{dashboardError.detail&&<p className="mt-3 rounded-xl bg-black/25 px-3 py-2 text-xs text-red-100/70">Detalle: {dashboardError.detail}</p>}</div>}
     {tab==='overview'&&canDashboard&&data&&<Overview data={data}/>}
     {tab==='products'&&<ProductsTabV2/>}
     {tab==='categories'&&<CategoriesTab/>}
