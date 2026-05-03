@@ -1,4 +1,12 @@
 import dotenv from 'dotenv';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const here = dirname(fileURLToPath(import.meta.url));
+
+// Load the API-local env no matter whether the process starts from repo root,
+// apps/api, dist, or a hosting platform root. Existing platform env vars win.
+dotenv.config({ path: join(here, '..', '.env') });
 dotenv.config();
 
 const frontendUrls = (process.env.FRONTEND_URLS || process.env.FRONTEND_URL || 'http://localhost:3000')
@@ -23,3 +31,7 @@ export const config = {
   rateLimitWindowMs: Number(process.env.RATE_LIMIT_WINDOW_MS || 60_000),
   rateLimitMax: Number(process.env.RATE_LIMIT_MAX || 900),
 };
+
+export function mailConfigured() {
+  return Boolean(config.smtpHost && config.smtpUser && config.smtpPass);
+}

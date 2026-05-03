@@ -79,5 +79,64 @@ async function main() {
     { key:'showFeatured', value:'true' },
     { key:'showFooter', value:'true' }
   ]});
+
+  await prisma.contentBlock.createMany({ data: [
+    {
+      area: 'FAQ',
+      title: '¿Magma Blaze tiene tienda fisica?',
+      body: 'No tenemos tienda fisica por ahora. Somos una tienda virtual: puedes explorar los productos en la web y confirmar disponibilidad o detalles por WhatsApp.',
+      sortOrder: 1,
+      isActive: true
+    },
+    {
+      area: 'FAQ',
+      title: '¿Como realizo un pedido?',
+      body: 'Puedes agregar productos al carrito, guardar favoritos o tocar verificar disponibilidad. Luego confirmamos por WhatsApp el articulo, variante, direccion y forma de pago antes de preparar el envio.',
+      sortOrder: 2,
+      isActive: true
+    },
+    {
+      area: 'FAQ',
+      title: '¿Cuanto tarda mi envio?',
+      body: 'El tiempo maximo estimado es de 2 a 4 horas, dependiendo del destino de envio, disponibilidad del producto y confirmacion del pedido.',
+      sortOrder: 3,
+      isActive: true
+    },
+    {
+      area: 'FAQ',
+      title: '¿Cuando el envio es gratis?',
+      body: 'En la ciudad de La Vega tenemos envio gratis. Ademas, los pedidos mayores de RD$1,250 califican para envio gratis solo dentro de la ciudad de La Vega.',
+      sortOrder: 4,
+      isActive: true
+    },
+    {
+      area: 'FAQ',
+      title: '¿Hacen envios fuera de La Vega?',
+      body: 'Si. Para otras zonas de Republica Dominicana y Estados Unidos, el costo y tiempo de envio se confirman antes de finalizar el pedido.',
+      sortOrder: 5,
+      isActive: true
+    },
+    {
+      area: 'FAQ',
+      title: '¿Como se si un producto esta disponible?',
+      body: 'Cada producto puede verificarse por WhatsApp. Si hay variantes, colores o lentes disponibles, te confirmamos la opcion exacta antes de preparar el pedido.',
+      sortOrder: 6,
+      isActive: true
+    },
+    {
+      area: 'FAQ',
+      title: '¿Como puedo pagar?',
+      body: 'El metodo de pago se confirma durante la atencion por WhatsApp. Si eliges transferencia, el pedido queda sujeto a confirmacion del pago antes del envio.',
+      sortOrder: 7,
+      isActive: true
+    },
+    {
+      area: 'FAQ',
+      title: '¿Que pasa si necesito ayuda con mi pedido?',
+      body: 'Puedes escribirnos desde la seccion de ayuda, WhatsApp o mensajes de tu cuenta. Te damos atencion personalizada para dudas, cambios y seguimiento.',
+      sortOrder: 8,
+      isActive: true
+    }
+  ]});
 }
 main().finally(()=>prisma.$disconnect());

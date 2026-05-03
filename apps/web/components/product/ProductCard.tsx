@@ -30,7 +30,7 @@ interface Product {
 
 export default function ProductCard({ product, index = 0 }: { product: Product; index?: number }) {
   const { isFavorite, toggleFavorite } = useFavorites();
-  const { currency, formatPrice, language, productPrice, t } = useStoreLocale();
+  const { currency, formatPrice, productPrice, t } = useStoreLocale();
   const isComingSoon = product.status === "COMING_SOON";
   const favorite = isFavorite(product.id);
   const compare = currency === "USD" ? product.comparePriceUsd : product.comparePrice;
@@ -75,7 +75,7 @@ export default function ProductCard({ product, index = 0 }: { product: Product; 
         )}
 
         {/* Badges */}
-        <div className="absolute top-3 left-3 flex flex-col gap-1.5">
+        <div className="absolute top-3 left-3 flex flex-col items-start gap-1.5">
           {product.isLimitedDrop && (
             <span className="badge badge-drop text-xs flex items-center gap-1">
               <Flame className="w-3 h-3" /> Drop
@@ -121,7 +121,7 @@ export default function ProductCard({ product, index = 0 }: { product: Product; 
             <button
               onClick={(e) => {
                 e.preventDefault();
-                window.open(productAvailabilityWhatsappUrl(product, language), "_blank", "noopener,noreferrer");
+                window.open(productAvailabilityWhatsappUrl(product), "_blank", "noopener,noreferrer");
               }}
               className="w-full py-3 font-heading text-sm uppercase tracking-wider text-white transition-all"
               style={{ background: "var(--ember)" }}
@@ -145,7 +145,7 @@ export default function ProductCard({ product, index = 0 }: { product: Product; 
           </span>
           {compare && (
             <span className="text-sm text-white/30 line-through">
-              {currency === "USD" ? "US$" : "RD$"} {Number(compare).toLocaleString(currency === "USD" ? "en-US" : "es-DO", { minimumFractionDigits: currency === "USD" ? 2 : 0, maximumFractionDigits: currency === "USD" ? 2 : 0 })}
+              {currency === "USD" ? "US$" : "RD$"} {Number(compare).toLocaleString("es-DO", { minimumFractionDigits: currency === "USD" ? 2 : 0, maximumFractionDigits: currency === "USD" ? 2 : 0 })}
             </span>
           )}
         </div>

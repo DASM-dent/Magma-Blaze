@@ -22,26 +22,15 @@ export class ApiError extends Error {
 
 const messages = {
   es: {
-    offline: 'No se pudo conectar con la API. Verifica que npm run dev tenga la API activa en el puerto 4000.',
+    offline: 'No se pudo conectar con la API.',
     timeout: 'La API tardo demasiado en responder. Intenta nuevamente.',
     generic: 'No pudimos completar la solicitud. Intenta nuevamente.',
     invalid: 'La API respondio con un formato inesperado.',
   },
-  en: {
-    offline: 'Could not connect to the API. Make sure npm run dev has the API running on port 4000.',
-    timeout: 'The API took too long to respond. Please try again.',
-    generic: 'We could not complete the request. Please try again.',
-    invalid: 'The API returned an unexpected response.',
-  },
 };
 
-function currentLanguage() {
-  if (typeof window === 'undefined') return 'es';
-  return localStorage.getItem('mb_language') === 'en' ? 'en' : 'es';
-}
-
 function msg(key: keyof typeof messages.es) {
-  return messages[currentLanguage()][key];
+  return messages.es[key];
 }
 
 function getApiBaseUrl() {
@@ -57,6 +46,18 @@ function getApiBaseUrl() {
 
 export const API_URL = getApiBaseUrl();
 
+function isLocalApi(baseUrl: string) {
+  return /\/\/(localhost|127\.0\.0\.1|\[::1\]|::1)(:|\/|$)/.test(baseUrl);
+}
+
+function offlineMessage() {
+  const baseUrl = getApiBaseUrl();
+  if (isLocalApi(baseUrl)) {
+    return `No se pudo conectar con la API local en ${baseUrl}. Confirma que npm run dev siga corriendo y que el backend no se haya cerrado.`;
+  }
+  return `No se pudo conectar con la API publicada en ${baseUrl}. Revisa que el servicio de Render este activo, que el deploy no tenga errores y que permita conexiones desde tu dominio.`;
+}
+
 export function getToken() {
   if (typeof window === 'undefined') return null;
   return localStorage.getItem('mb_token') || localStorage.getItem('magma_token');
@@ -71,7 +72,7 @@ function canRetry(options: RequestInit) {
   return method === 'GET' || method === 'HEAD';
 }
 
-async function fetchWithTimeout(url: string, options: RequestInit, timeoutMs = 12_000) {
+async function fetchWithTimeout(url: string, options: RequestInit, timeoutMs = 30_000) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
   try {
@@ -122,5 +123,5 @@ export async function api<T>(path: string, options: RequestInit = {}): Promise<T
 
   if ((lastError as { name?: string } | undefined)?.name === 'AbortError') throw new ApiError(msg('timeout'), 408);
   if (lastError instanceof Error && lastError.message && lastError.message !== 'Failed to fetch') throw lastError;
-  throw new ApiError(msg('offline'), 0);
+  throw new ApiError(offlineMessage(), 0);
 }

@@ -5,7 +5,7 @@ import { useStoreLocale } from '@/context/LocaleContext';
 import { productAvailabilityWhatsappUrl } from '@/lib/whatsapp';
 
 export function ProductCard({ product }: { product:any }) {
-  const { t, formatPrice, language } = useStoreLocale();
+  const { t, formatPrice } = useStoreLocale();
   const stock = Number(product.availableStock ?? product.stock ?? 0);
   const disabled = stock <= 0 || product.status === 'SOLD_OUT' || product.status === 'UPCOMING';
   return <article className="glass overflow-hidden rounded-3xl">
@@ -15,7 +15,7 @@ export function ProductCard({ product }: { product:any }) {
       <p className="line-clamp-2 text-sm text-white/60">{product.description}</p>
       <div className="flex items-center justify-between"><strong>{formatPrice(product)}</strong><span className="text-xs text-white/50">{product.variantCount ? `${product.variantCount} variantes · ${stock} disp.` : `Stock: ${stock}`}</span></div>
       <a
-        href={disabled ? undefined : productAvailabilityWhatsappUrl(product, language)}
+        href={disabled ? undefined : productAvailabilityWhatsappUrl(product)}
         target="_blank"
         rel="noreferrer"
         aria-disabled={disabled}

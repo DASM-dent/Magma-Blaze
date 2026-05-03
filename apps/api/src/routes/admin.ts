@@ -315,7 +315,15 @@ router.delete('/categories/:id',async(req,res)=>{const count=await prisma.produc
 
 router.get('/products',async(req,res)=>{const q=String(req.query.q||'').trim(); const status=String(req.query.status||''); const products=await prisma.product.findMany({where:{AND:[q?{OR:[{name:{contains:q}},{description:{contains:q}}]}:{},status?{status}:{}]},orderBy:{createdAt:'desc'},include:{category:true,orderItems:true,images:{orderBy:{sortOrder:'asc'}},variants:{orderBy:{sortOrder:'asc'}}}}); res.json(products.map(toProduct));});
 const productSchema=z.object({name:z.string().min(2),slug:z.string().optional(),description:z.string().min(3),price:z.number().min(0),priceUsd:z.number().min(0).default(0),cost:z.number().min(0).default(0),discountActive:z.boolean().default(false),discountType:z.enum(DISCOUNT_TYPES).default('NONE'),discountValue:z.number().min(0).default(0),discountLabel:z.string().optional().nullable(),discountStartsAt:z.string().optional().nullable(),discountEndsAt:z.string().optional().nullable(),imageUrl:z.string().min(5),images:z.array(z.object({url:z.string().min(5),alt:z.string().optional().nullable(),sortOrder:z.number().int().min(0).optional()})).optional(),variants:z.array(z.object({id:z.string().optional().nullable(),name:z.string().optional().nullable(),sku:z.string().optional().nullable(),color:z.string().optional().nullable(),size:z.string().optional().nullable(),model:z.string().optional().nullable(),lens:z.string().optional().nullable(),price:z.number().min(0).optional().nullable(),priceUsd:z.number().min(0).optional().nullable(),stock:z.number().int().min(0).default(0),imageUrl:z.string().optional().nullable(),active:z.boolean().default(true),sortOrder:z.number().int().min(0).optional()})).optional(),stock:z.number().int().min(0),lowStockThreshold:z.number().int().min(0).default(5),status:z.enum(['ACTIVE','NEW','BESTSELLER','SOLD_OUT','UPCOMING','LIMITED_DROP']),categoryId:z.string().min(1)});
+const PRODUCT_WRITE_TX_OPTIONS={maxWait:20000,timeout:60000};
+const productAdminInclude={category:true,orderItems:true,images:{orderBy:{sortOrder:'asc' as const}},variants:{orderBy:{sortOrder:'asc' as const}}};
+function productWriteError(res:any,error:any,action:string){
+  console.error(`[ADMIN_PRODUCT_${action}_ERROR]`,error);
+  if(error?.code==='P2028')return res.status(504).json({message:'La base de datos tardo demasiado guardando el producto. Intenta de nuevo con imagenes mas livianas o menos imagenes.'});
+  return res.status(500).json({message:'No se pudo guardar el producto. Intenta nuevamente.'});
+}
 router.post('/products',async(req,res)=>{
+  try{
   const p=productSchema.safeParse(req.body);
   if(!p.success)return res.status(400).json({message:'Producto inválido',errors:p.error.flatten()});
   const d=p.data;
@@ -323,7 +331,7 @@ router.post('/products',async(req,res)=>{
   const variants=normalizeProductVariants(d.variants);
   const {images:_images,variants:_variants,discountActive:_discountActive,discountType:_discountType,discountValue:_discountValue,discountLabel:_discountLabel,discountStartsAt:_discountStartsAt,discountEndsAt:_discountEndsAt,...productData}=d;
   const priceUsd=d.priceUsd>0?d.priceUsd:rdToUsd(d.price);
-  const prod=await prisma.$transaction(async tx=>{
+  const prodId=await prisma.$transaction(async tx=>{
     const created=await tx.product.create({
       data:{
         ...productData,
@@ -340,18 +348,24 @@ router.post('/products',async(req,res)=>{
           priceUsd:variant.priceUsd??unitToCents(priceUsd),
         }))}:undefined,
       },
-      include:{category:true,orderItems:true,images:{orderBy:{sortOrder:'asc'}},variants:{orderBy:{sortOrder:'asc'}}}
+      select:{id:true,stock:true,variants:{select:{id:true,stock:true}}}
     });
     if(created.stock>0)await tx.inventoryMovement.create({data:{productId:created.id,type:'INITIAL',quantity:created.stock,reason:'Stock inicial',reference:created.id}});
     for(const variant of created.variants||[]){
       if(variant.stock>0)await tx.inventoryMovement.create({data:{productId:created.id,type:'INITIAL',quantity:variant.stock,reason:'Stock inicial de variante',reference:variant.id,variantId:variant.id}});
     }
-    return created;
-  });
+    return created.id;
+  },PRODUCT_WRITE_TX_OPTIONS);
+  const prod=await prisma.product.findUnique({where:{id:prodId},include:productAdminInclude});
+  if(!prod)return res.status(404).json({message:'Producto guardado, pero no se pudo recargar.'});
   await audit(req.user?.id,`PRODUCT_CREATED:${prod.id}`,req.ip);
   res.status(201).json(toProduct(prod));
+  }catch(error){
+    return productWriteError(res,error,'CREATE');
+  }
 });
 router.patch('/products/:id',async(req,res)=>{
+  try{
   const p=productSchema.partial().safeParse(req.body);
   if(!p.success)return res.status(400).json({message:'Producto inválido'});
   const current=await prisma.product.findUnique({where:{id:req.params.id}});
@@ -376,8 +390,8 @@ router.patch('/products/:id',async(req,res)=>{
   if(d.cost!==undefined)d.cost=unitToCents(d.cost);
   if(d.name&&!d.slug)d.slug=slugify(d.name);
   const imageUpdate=nextImages!==undefined?{images:{deleteMany:{},create:nextImages.map(image=>({url:image.url,alt:image.alt,sortOrder:image.sortOrder}))}}:{};
-  const prod=await prisma.$transaction(async tx=>{
-    const updated=await tx.product.update({where:{id:req.params.id},data:{...d,...discountData,...imageUpdate},include:{category:true,orderItems:true,images:{orderBy:{sortOrder:'asc'}},variants:{orderBy:{sortOrder:'asc'}}}});
+  const prodId=await prisma.$transaction(async tx=>{
+    const updated=await tx.product.update({where:{id:req.params.id},data:{...d,...discountData,...imageUpdate},select:{id:true,price:true,priceUsd:true}});
     if(p.data.stock!==undefined&&p.data.stock!==current.stock){
       const delta=p.data.stock-current.stock;
       await tx.inventoryMovement.create({data:{productId:updated.id,type:'ADJUSTMENT',quantity:delta,reason:'Ajuste desde administracion',reference:updated.id}});
@@ -400,10 +414,15 @@ router.patch('/products/:id',async(req,res)=>{
         if(createdVariant.stock>0)await tx.inventoryMovement.create({data:{productId:updated.id,type:'INITIAL',quantity:createdVariant.stock,reason:'Stock inicial de variante',reference:createdVariant.id,variantId:createdVariant.id}});
       }
     }
-    return tx.product.findUnique({where:{id:updated.id},include:{category:true,orderItems:true,images:{orderBy:{sortOrder:'asc'}},variants:{orderBy:{sortOrder:'asc'}}}});
-  });
+    return updated.id;
+  },PRODUCT_WRITE_TX_OPTIONS);
+  const prod=await prisma.product.findUnique({where:{id:prodId},include:productAdminInclude});
+  if(!prod)return res.status(404).json({message:'Producto actualizado, pero no se pudo recargar.'});
   await audit(req.user?.id,`PRODUCT_UPDATED:${prod?.id}`,req.ip);
   res.json(toProduct(prod));
+  }catch(error){
+    return productWriteError(res,error,'UPDATE');
+  }
 });
 router.delete('/products/:id',async(req,res)=>{const used=await prisma.orderItem.count({where:{productId:req.params.id}}); if(used>0){const prod=await prisma.product.update({where:{id:req.params.id},data:{status:'SOLD_OUT',stock:0},include:{category:true,orderItems:true,images:{orderBy:{sortOrder:'asc'}},variants:{orderBy:{sortOrder:'asc'}}}}); return res.json(toProduct(prod));} await prisma.wishlistItem.deleteMany({where:{productId:req.params.id}}); await prisma.modelPhoto.deleteMany({where:{productId:req.params.id}}); await prisma.product.delete({where:{id:req.params.id}}); await audit(req.user?.id,`PRODUCT_DELETED:${req.params.id}`,req.ip); res.json({ok:true});});
 

@@ -3,7 +3,7 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { z } from 'zod';
 import { prisma } from '../prisma.js';
-import { config } from '../config.js';
+import { config, mailConfigured } from '../config.js';
 import { requireAuth } from '../middleware/auth.js';
 import { generateNumericCode, hashCode, sendMail } from '../email.js';
 import { emailTemplates } from '../emailTemplates.js';
@@ -42,10 +42,6 @@ async function publicUser(user: { id:string; email:string; name:string; role:str
 
 function signToken(user: { id:string; email:string; role:string }) {
   return jwt.sign({ id:user.id, email:user.email, role:user.role }, config.jwtSecret, { expiresIn: config.jwtExpiresIn as any });
-}
-
-function mailConfigured() {
-  return Boolean(config.smtpHost && config.smtpUser && config.smtpPass);
 }
 
 async function createCode(input: { userId?: string; email: string; purpose: 'EMAIL_VERIFY' | 'LOGIN_2FA'; minutes?: number }) {

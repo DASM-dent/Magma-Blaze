@@ -3,16 +3,13 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 
 type StoreCountry = 'RD' | 'US';
-type StoreLanguage = 'es' | 'en';
 type StoreCurrency = 'DOP' | 'USD';
 
 type LocaleCtx = {
   country: StoreCountry;
-  language: StoreLanguage;
   currency: StoreCurrency;
   symbol: 'RD$' | 'US$';
   setCountry: (c: StoreCountry) => void;
-  setLanguage: (l: StoreLanguage) => void;
   setCurrency: (c: StoreCurrency) => void;
   formatPrice: (product: any) => string;
   productPrice: (product: any) => number;
@@ -25,7 +22,7 @@ const USD_EXCHANGE_RATE = 48;
 const roundMoney = (v: number) => Math.round((Number(v || 0) + Number.EPSILON) * 100) / 100;
 const rdToUsd = (priceRd: number) => roundMoney(priceRd / USD_EXCHANGE_RATE);
 
-const translations: Record<StoreLanguage, Record<string, string>> = {
+const translations: { es: Record<string, string> } = {
   es: {
     'nav.catalog': 'Catalogo',
     'nav.news': 'Novedades',
@@ -35,14 +32,11 @@ const translations: Record<StoreLanguage, Record<string, string>> = {
     'nav.search': 'Buscar',
     'nav.account': 'Cuenta',
     'nav.cart': 'Carrito',
-    'nav.locale': 'Idioma, ubicacion y moneda',
+    'nav.locale': 'Ubicacion y moneda',
 
-    'locale.language': 'Idioma',
     'locale.country': 'Pais',
     'locale.region': 'Region',
     'locale.currency': 'Moneda',
-    'locale.spanish': 'Espanol',
-    'locale.english': 'English',
     'locale.current': 'Seleccion actual',
 
     'common.loading': 'Cargando',
@@ -214,7 +208,7 @@ const translations: Record<StoreLanguage, Record<string, string>> = {
     'account.credit': 'Saldo de credito',
     'account.favorites': 'Favoritos',
     'account.addresses': 'Direcciones',
-    'account.locale': 'Pais/region e idioma',
+    'account.locale': 'Pais/region y moneda',
     'account.payments': 'Metodos de pago',
     'account.security': 'Seguridad de la cuenta',
     'account.notifications': 'Notificaciones',
@@ -453,446 +447,16 @@ const translations: Record<StoreLanguage, Record<string, string>> = {
     'gate.maintenance': 'Mantenimiento',
     'gate.maintenanceCopy': 'Volvemos pronto con algo increible.',
   },
-  en: {
-    'nav.catalog': 'Catalog',
-    'nav.news': 'New',
-    'nav.drops': 'Drops',
-    'nav.models': 'Models',
-    'nav.about': 'About',
-    'nav.search': 'Search',
-    'nav.account': 'Account',
-    'nav.cart': 'Cart',
-    'nav.locale': 'Language, location and currency',
-
-    'locale.language': 'Language',
-    'locale.country': 'Country',
-    'locale.region': 'Region',
-    'locale.currency': 'Currency',
-    'locale.spanish': 'Spanish',
-    'locale.english': 'English',
-    'locale.current': 'Current selection',
-
-    'common.loading': 'Loading',
-    'common.processing': 'Processing',
-    'common.save': 'Save',
-    'common.saving': 'Saving',
-    'common.delete': 'Delete',
-    'common.send': 'Send',
-    'common.default': 'Primary',
-    'common.backHome': 'Back home',
-    'common.backCatalog': 'Back to catalog',
-    'common.yes': 'Yes',
-    'common.no': 'No',
-    'common.items': 'items',
-    'common.item': 'item',
-    'common.saved': 'Changes saved.',
-    'common.saveError': 'Could not save.',
-    'common.countryRD': 'Dominican Republic',
-    'common.countryUS': 'United States',
-
-    'hero.badge': 'Design without compromise',
-    'hero.copy': 'Limited-edition eyewear for people who do not follow trends: they create them.',
-    'hero.collection': 'Shop collection',
-    'hero.drops': 'Upcoming drops',
-    'hero.scroll': 'Scroll',
-
-    'home.dropLabel': 'Exclusive drops',
-    'home.dropTitle1': 'Limited editions.',
-    'home.dropTitle2': 'Do not wait.',
-    'home.dropCopy': 'Every drop is unique. Once it sells out, it is gone. Turn on notifications and be first.',
-    'home.viewDrops': 'View drops',
-    'home.featuredEyebrow': 'Best picks',
-    'home.featuredTitle': 'Featured',
-    'home.viewAll': 'View all',
-    'home.explore': 'Explore',
-    'home.categories': 'Categories',
-    'home.products': 'products',
-
-    'footer.shipping': 'Shipping',
-    'footer.returns': 'Returns',
-    'footer.privacy': 'Privacy',
-    'footer.terms': 'Terms',
-    'footer.copy': 'Premium limited-edition eyewear. Designed for people who do not follow trends: they create them.',
-    'footer.shop': 'Shop',
-    'footer.support': 'Support',
-    'footer.rights': 'All rights reserved.',
-
-    'catalog.title': 'Catalog',
-    'catalog.resultsFor': 'Results for',
-    'catalog.filters': 'Filters',
-    'catalog.inStock': 'In stock',
-    'catalog.results': 'results',
-    'catalog.noResults': 'No results',
-    'catalog.tryOther': 'Try different filters',
-    'catalog.loading': 'Loading catalog',
-    'catalog.categories': 'Categories',
-    'catalog.all': 'All',
-    'catalog.price': 'Price',
-    'catalog.min': 'Min',
-    'catalog.max': 'Max',
-    'catalog.availability': 'Availability',
-    'catalog.onlyStock': 'Only in-stock products',
-    'catalog.apply': 'Apply filters',
-    'catalog.clear': 'Clear all',
-
-    'sort.newest': 'Newest',
-    'sort.priceAsc': 'Price: low to high',
-    'sort.priceDesc': 'Price: high to low',
-    'sort.popular': 'Most popular',
-    'sort.bestSelling': 'Best sellers',
-
-    'badge.new': 'New',
-    'badge.bestSeller': 'Best seller',
-    'badge.limitedDrop': 'Limited drop',
-    'badge.comingSoon': 'Coming soon',
-    'badge.soldOut': 'Sold out',
-
-    'product.favoriteAdd': 'Add to favorites',
-    'product.favoriteRemove': 'Remove from favorites',
-    'product.addToCart': 'Add to cart',
-    'product.verifyAvailability': 'Verify availability',
-    'product.loading': 'Loading product',
-    'product.notFound': 'We could not find this product.',
-    'product.backToCatalog': 'Back to catalog',
-    'product.noUsd': 'This product does not have a USD price configured yet. The base price will be shown until you update it in the admin panel.',
-    'product.shippingLine': 'Shipping available for the Dominican Republic and the United States.',
-    'product.confirmLine': 'If shipping has no registered rate, it will stay pending confirmation.',
-    'product.inventoryLine': 'Product protected with inventory control.',
-    'product.supportLine': 'Personalized support for availability, sizing, and delivery questions.',
-    'product.unavailable': 'Unavailable',
-    'product.relatedTitle': 'You may also like',
-    'product.relatedSubtitle': 'Pieces from the same line or with strong activity so you can keep exploring without losing the thread.',
-    'product.recentTitle': 'Recently viewed',
-    'product.recentSubtitle': 'Your latest product visits stay here on this device so you can jump back quickly.',
-
-    'cart.title': 'Cart',
-    'cart.empty': 'Your cart is empty',
-    'cart.explore': 'Explore catalog',
-    'cart.quantity': 'Quantity',
-    'cart.subtotal': 'Subtotal',
-    'cart.shippingCheckout': 'Shipping calculated at checkout',
-    'cart.checkout': 'Proceed to checkout',
-    'cart.verifyAvailability': 'Verify availability on WhatsApp',
-    'cart.availabilityNote': 'Availability and shipping are confirmed on WhatsApp before payment.',
-    'cart.continue': 'Continue shopping',
-    'cart.goCheckout': 'Go to checkout',
-    'cart.itemCount': 'items',
-    'cart.clear': 'Empty cart',
-    'cart.share': 'Share cart',
-    'cart.shareCopied': 'Cart link copied.',
-    'cart.shareError': 'Could not share the cart.',
-    'cart.finishOrder': 'Place order on WhatsApp',
-    'cart.whatsappOrderNote': 'The message includes products, links, quantities and approximate total.',
-    'cart.total': 'Total',
-    'cart.unitPrice': 'Price',
-    'cart.lineTotal': 'Line total',
-    'cart.sharedTitle': 'Shared cart',
-    'cart.sharedIntro': 'This link includes the shared products, quantities and approximate total.',
-    'cart.sharedInvalid': 'This shared cart does not exist or the link is incomplete.',
-    'cart.addShared': 'Add this cart to mine',
-    'cart.sharedAdded': 'Cart added.',
-    'cart.openCart': 'View my cart',
-
-    'search.placeholder': 'Search lenses, models, colors...',
-    'search.minLength': 'Type at least 2 characters to search...',
-    'search.noResults': 'No results found for',
-    'search.results': 'results',
-
-    'favorites.title': 'Favorites',
-    'favorites.subtitle': 'Your saved items sync with your account when you sign in.',
-    'favorites.emptyTitle': 'You have no favorites yet',
-    'favorites.emptyText': 'Tap the heart on products and they will appear here with image and price.',
-    'favorites.remove': 'Remove',
-    'favorites.synced': 'Synced with your account',
-    'favorites.syncing': 'Syncing favorites',
-    'favorites.syncError': 'Saved locally. It will sync when the API responds.',
-    'favorites.localOnly': 'Sign in to sync favorites with your account.',
-
-    'checkout.badge': 'Checkout',
-    'checkout.title': 'Confirm your order',
-    'checkout.availabilityTitle': 'Verify availability on WhatsApp',
-    'checkout.country': 'Delivery country',
-    'checkout.province': 'Province / State',
-    'checkout.city': 'City',
-    'checkout.address': 'Full address',
-    'checkout.promo': 'Coupon or promo code',
-    'checkout.payment': 'Payment method',
-    'checkout.noPayment': 'Manual payment / confirm later',
-    'checkout.confirm': 'Confirm order',
-    'checkout.verifyAvailability': 'Place order on WhatsApp',
-    'checkout.whatsappNotice': 'No order will be created and no payment will be processed on the website. We will confirm availability, shipping, and payment method on WhatsApp.',
-    'checkout.summary': 'Summary',
-    'checkout.subtotal': 'Subtotal',
-    'checkout.created': 'Order created successfully',
-    'checkout.apiError': 'Could not create the order. Please sign in first.',
-    'checkout.usNotice': 'Use your courier/forwarder address. Shipping may vary and we may contact you if that price is not registered.',
-    'checkout.cardEnding': 'ending in',
-    'checkout.primary': 'primary',
-
-    'account.logout': 'Sign out',
-    'account.title': 'My account',
-    'account.breadcrumb': 'Home / Account',
-    'account.hello': 'Hello',
-    'account.adminPanel': 'Admin panel',
-    'account.orders': 'Your orders',
-    'account.reviews': 'Your reviews',
-    'account.profile': 'Your profile',
-    'account.coupons': 'Coupons and offers',
-    'account.credit': 'Credit balance',
-    'account.favorites': 'Favorites',
-    'account.addresses': 'Addresses',
-    'account.locale': 'Country/region and language',
-    'account.payments': 'Payment methods',
-    'account.security': 'Account security',
-    'account.notifications': 'Notifications',
-    'account.messages': 'Messages',
-    'account.help': 'Help',
-
-    'orders.all': 'All',
-    'orders.processing': 'Processing',
-    'orders.shipped': 'Shipped',
-    'orders.delivered': 'Delivered',
-    'orders.returns': 'Returns',
-    'orders.empty.all.title': 'You have no orders yet',
-    'orders.empty.all.text': 'Once you place an order, you will be able to track its full status here.',
-    'orders.empty.processing.title': 'You have no processing orders',
-    'orders.empty.processing.text': 'Orders being prepared will appear in this section.',
-    'orders.empty.shipped.title': 'You have no shipped orders',
-    'orders.empty.shipped.text': 'When an order leaves the warehouse, you will be able to track it here.',
-    'orders.empty.delivered.title': 'You have no delivered orders',
-    'orders.empty.delivered.text': 'Your completed purchases will appear here.',
-    'orders.empty.returns.title': 'You have no returns',
-    'orders.empty.returns.text': 'If a return or cancellation is registered, it will appear in this section.',
-    'orders.order': 'Order',
-    'orders.total': 'Total',
-    'orders.shipping': 'Shipping',
-    'orders.approveShipping': 'Accept fee',
-    'orders.cancelOrder': 'Cancel',
-    'orders.stepProcessing': 'Processing',
-    'orders.stepPacked': 'Packed',
-    'orders.stepShipped': 'Shipped',
-    'orders.stepDelivered': 'Delivered',
-    'orders.deliveryPlace': 'Delivery/stop',
-    'orders.driver': 'Driver',
-    'orders.reference': 'Reference',
-    'orders.uploadedInvoice': 'View uploaded invoice',
-    'orders.generatedPdf': 'View generated PDF',
-
-    'status.open': 'Open',
-    'status.waitingCustomer': 'Waiting for customer',
-    'status.answered': 'Answered',
-    'status.closed': 'Closed',
-    'status.pending': 'Pending',
-    'status.awaitingShipping': 'Waiting for shipping fee',
-    'status.awaitingApproval': 'Waiting for approval',
-    'status.processing': 'Processing',
-    'status.packed': 'Packed',
-    'status.shipped': 'Shipped',
-    'status.delivered': 'Delivered',
-    'status.cancelled': 'Cancelled',
-
-    'profile.name': 'Name',
-    'profile.email': 'Email',
-    'profile.whatsapp': 'WhatsApp',
-    'profile.preferredContact': 'I prefer to be contacted by',
-    'profile.save': 'Save profile',
-
-    'contact.system': 'System',
-    'contact.whatsapp': 'WhatsApp',
-
-    'addresses.country': 'Country',
-    'addresses.province': 'Province',
-    'addresses.state': 'State',
-    'addresses.provinceHint': 'You can type to search and select.',
-    'addresses.city': 'City',
-    'addresses.cityHint': 'The list changes based on province or state.',
-    'addresses.zip': 'Postal code',
-    'addresses.full': 'Full address',
-    'addresses.placeholder': 'Street, number, building, apartment or reference',
-    'addresses.default': 'Primary address',
-    'addresses.add': 'Add address',
-    'addresses.saved': 'Address saved.',
-    'addresses.saveError': 'Could not save the address.',
-
-    'payments.title': 'Payment methods',
-    'payments.holder': 'Cardholder',
-    'payments.number': 'Card number',
-    'payments.securityHint': 'For security, only the brand and last 4 digits are stored. We do not store CVV.',
-    'payments.expires': 'Expiration',
-    'payments.default': 'Primary method',
-    'payments.add': 'Add method',
-    'payments.card': 'Card',
-    'payments.saved': 'Payment method saved.',
-    'payments.invalidNumber': 'Enter a valid card number.',
-    'payments.invalidHolder': 'Enter the cardholder name.',
-    'payments.invalidExpires': 'Enter expiration as MM/YY.',
-    'payments.saveError': 'Could not save the payment method.',
-    'payments.ending': 'ending in',
-
-    'security.emailCode': 'One-time email code',
-    'security.emailCodeText': 'Requires a code when signing in once SMTP email is configured.',
-    'security.changePassword': 'Change password',
-    'security.currentPassword': 'Current password',
-    'security.newPassword': 'New password',
-    'security.confirmPassword': 'Confirm password',
-    'security.updatePassword': 'Update password',
-    'security.signOutDevice': 'Sign out on this device',
-    'security.passwordUpdated': 'Password updated.',
-    'security.passwordError': 'Could not change password.',
-    'security.2faOn': 'Email code enabled for future sign-ins.',
-    'security.2faOff': 'Email code disabled for future sign-ins.',
-    'security.preferenceError': 'Could not update the preference.',
-
-    'notifications.title': 'Notification preferences',
-    'notifications.ordersTitle': 'Orders and deliveries',
-    'notifications.ordersText': 'Status, shipping and delivery updates.',
-    'notifications.dropsTitle': 'Drops',
-    'notifications.dropsText': 'Launch alerts and active countdowns.',
-    'notifications.supportTitle': 'Help and messages',
-    'notifications.supportText': 'Support replies and system messages.',
-    'notifications.promosTitle': 'Coupons and offers',
-    'notifications.promosText': 'Promotions available for your account.',
-    'notifications.save': 'Save preferences',
-
-    'help.subject': 'Subject',
-    'help.category': 'Category',
-    'help.preferredContact': 'I want to be contacted by',
-    'help.message': 'Message',
-    'help.openTicket': 'Open ticket',
-    'help.ticketError': 'Could not open the ticket.',
-    'help.intro': 'Tell us what you need and the Magma Blaze team will receive it as a ticket. Replies will also appear in messages.',
-    'help.responseNote': 'You can choose whether you prefer replies through the system or WhatsApp.',
-    'help.category.general': 'General',
-    'help.category.orders': 'Orders',
-    'help.category.shipping': 'Shipping',
-    'help.category.returns': 'Returns',
-    'help.category.payments': 'Payments',
-    'help.category.account': 'Account',
-
-    'messages.emptyTitle': 'You have no messages',
-    'messages.emptyText': 'Support replies and important system notices will appear here.',
-    'messages.tickets': 'Your tickets',
-    'messages.replyPlaceholder': 'Reply to ticket',
-    'messages.inboxIntro': 'System notices, support replies, and important updates are grouped here.',
-    'messages.openHelp': 'Open help',
-    'messages.unread': 'New',
-    'messages.read': 'Read',
-
-    'coupons.emptyTitle': 'You have no coupons or offers available yet',
-    'coupons.emptyText': 'When benefits are active for your account, they will appear here.',
-    'credit.emptyTitle': 'You do not have credit balance available yet',
-    'credit.emptyText': 'Credit from returns, adjustments or promotions will appear here.',
-    'reviews.emptyTitle': 'You have no reviews yet',
-    'reviews.emptyText': 'When you rate a product, your reviews will appear here.',
-
-    'auth.badge': 'Magma Blaze Account',
-    'auth.createAccount': 'Create account',
-    'auth.signIn': 'Sign in',
-    'auth.registerIntro': 'Create your account to save favorites, receive drop alerts and manage your orders.',
-    'auth.loginIntro': 'Sign in to continue with your orders, favorites and preferences.',
-    'auth.displayName': 'Display name',
-    'auth.displayNamePlaceholder': 'Ex. Diana Santana',
-    'auth.email': 'Email',
-    'auth.emailPlaceholder': 'email@example.com',
-    'auth.password': 'Password',
-    'auth.passwordHint': 'Must be at least 8 characters and include at least one letter and one number.',
-    'auth.emailCodeOptIn': 'I want to receive a one-time email code every time I sign in.',
-    'auth.emailCodeOptInBold': 'You can change this later from Account security.',
-    'auth.codeSent': 'Enter the verification code sent to',
-    'auth.enter': 'Enter',
-    'auth.verifyCode': 'Verify code',
-    'auth.resendCode': 'Resend code',
-    'auth.createdVerify': 'Account created. Check your email to verify it.',
-    'auth.createdLogin': 'Account created. You can sign in now.',
-    'auth.loginCodeSent': 'We sent a verification code to the email linked to your account.',
-    'auth.mustVerify': 'You must verify your email. We sent you a new code.',
-    'auth.actionError': 'Could not complete the action',
-    'auth.emailVerified': 'Email verified. Now sign in.',
-    'auth.invalidCode': 'Invalid code',
-    'auth.codeResent': 'Code resent.',
-    'auth.resendError': 'Could not resend',
-    'auth.notice.success': 'Done',
-    'auth.notice.info': 'Check your email',
-    'auth.notice.warning': 'We need to verify something',
-    'auth.notice.error': 'We could not continue',
-    'auth.error.invalidCredentials': 'The email or password does not match. Check both fields and try again.',
-    'auth.error.emailExists': 'That email already has an account. Sign in or use another email.',
-    'auth.error.blocked': 'Your account is blocked. Contact customer support so we can review it.',
-    'auth.error.locked': 'For security, access is temporarily paused. Check your email or try again later.',
-    'auth.error.verifyEmail': 'You need to verify your email before signing in. We sent you a new code.',
-    'auth.error.checkFields': 'Check these fields',
-    'auth.error.fixFields': 'Fix the details below and try again.',
-    'auth.error.network': 'Could not connect to the API. Make sure the backend is running.',
-    'auth.error.timeout': 'The API took too long. Try again in a few seconds.',
-    'auth.error.generic': 'Could not complete the action. Please try again.',
-    'auth.error.invalidCodeDetail': 'The code does not match, expired, or was already used. Check the 6 digits.',
-    'auth.error.nameFormat': 'Name: enter at least 2 characters.',
-    'auth.error.emailFormat': 'Email: enter a valid email.',
-    'auth.error.passwordFormat': 'Password: minimum 8 characters, one letter and one number.',
-    'auth.error.codeFormat': 'Code: must have 6 digits.',
-    'auth.error.confirmPasswordFormat': 'Confirmation: it must match the password.',
-    'news.title': 'New',
-    'news.copy': 'Announcements, new releases, drops, collections and updates published from the admin panel.',
-    'news.loading': 'Loading updates',
-    'news.empty': 'No updates have been published yet.',
-
-    'models.loading': 'Loading lookbook',
-    'models.closed': 'Lookbook closed',
-    'models.closedTitle': 'Models will be available during the active drop',
-    'models.closedCopy': 'This page is exclusive to the active launch. When you activate a drop from admin, the model photos will appear here.',
-    'models.active': 'Active drop',
-    'models.title': 'Magma Models',
-    'models.copy': 'Exclusive lookbook for the active drop. Tap the tag over the lens to open the modeled product.',
-    'models.tagged': 'Tagged look',
-    'models.editorial': 'Exclusive editorial from the active drop.',
-    'models.empty': 'There are no active photos for this drop yet.',
-
-    'content.shipping': 'Shipping',
-    'content.returns': 'Returns',
-    'content.faq': 'FAQ',
-    'content.contact': 'Contact',
-    'content.privacy': 'Privacy',
-    'content.terms': 'Terms',
-    'content.generic': 'Content',
-    'content.loading': 'Loading content',
-    'content.unpublished': 'Content not published',
-    'content.empty': 'This section does not have visible information yet.',
-
-    'about.title': 'About',
-    'about.copy': 'Learn the story, identity and value proposal behind the brand.',
-    'about.comingSoon': 'Coming soon',
-    'about.empty': 'This section does not have published content yet.',
-
-    'drop.days': 'Days',
-    'drop.hours': 'Hours',
-    'drop.minutes': 'Minutes',
-    'drop.seconds': 'Seconds',
-    'drop.notify': 'Notify me',
-    'drop.subscribed': 'We will tell you when it opens.',
-    'drop.toastSuccess': 'Done. We will notify you when the drop starts.',
-    'drop.toastError': 'Subscription failed',
-    'drop.noSpam': 'No spam. We only notify you when the drop opens.',
-    'drop.nextName': 'NEXT DROP',
-    'drop.nextDescription': 'There is no active drop yet. Check back soon for the next limited release.',
-
-    'gate.noDropTitle': 'Next drop is not set',
-    'gate.noDropCopy': 'No drop is available yet. Check back soon to discover the next release.',
-    'gate.maintenance': 'Maintenance',
-    'gate.maintenanceCopy': 'We will be back soon with something incredible.',
-  },
 };
 
 export function LocaleProvider({ children }: { children: ReactNode }) {
   const [country, setCountryState] = useState<StoreCountry>('RD');
-  const [language, setLanguageState] = useState<StoreLanguage>('es');
   const [currency, setCurrencyState] = useState<StoreCurrency>('DOP');
 
   useEffect(() => {
     const saved = localStorage.getItem('mb_country') as StoreCountry | null;
-    const lang = localStorage.getItem('mb_language') as StoreLanguage | null;
     const cur = localStorage.getItem('mb_currency') as StoreCurrency | null;
     if (saved === 'RD' || saved === 'US') setCountryState(saved);
-    if (lang === 'es' || lang === 'en') setLanguageState(lang);
     if (cur === 'DOP' || cur === 'USD') setCurrencyState(cur);
   }, []);
 
@@ -904,38 +468,31 @@ export function LocaleProvider({ children }: { children: ReactNode }) {
     setCurrencyState(next);
   }, []);
 
-  const setLanguage = useCallback((l: StoreLanguage) => {
-    localStorage.setItem('mb_language', l);
-    setLanguageState(l);
-  }, []);
-
   const setCurrency = useCallback((c: StoreCurrency) => {
     localStorage.setItem('mb_currency', c);
     setCurrencyState(c);
   }, []);
 
   useEffect(() => {
-    document.documentElement.lang = language;
-    document.title = language === 'en' ? 'Magma Blaze | Premium Eyewear' : 'Magma Blaze | Lentes Premium';
-  }, [language]);
+    document.documentElement.lang = 'es';
+    document.title = 'Magma Blaze | Lentes Premium';
+  }, []);
 
   const symbol: 'RD$' | 'US$' = currency === 'USD' ? 'US$' : 'RD$';
   const productPrice = (p: any) => currency === 'USD' ? Number(p.priceUsd || p.usdPrice || rdToUsd(Number(p.price || 0))) : Number(p.price || 0);
-  const t = useCallback((key: string) => translations[language]?.[key] || translations.es[key] || key, [language]);
-  const formatPrice = (p: any) => `${symbol} ${productPrice(p).toLocaleString(language === 'en' ? 'en-US' : 'es-DO', { minimumFractionDigits: currency === 'USD' ? 2 : 0, maximumFractionDigits: currency === 'USD' ? 2 : 0 })}`;
+  const t = useCallback((key: string) => translations.es[key] || key, []);
+  const formatPrice = (p: any) => `${symbol} ${productPrice(p).toLocaleString('es-DO', { minimumFractionDigits: currency === 'USD' ? 2 : 0, maximumFractionDigits: currency === 'USD' ? 2 : 0 })}`;
 
   const value = useMemo<LocaleCtx>(() => ({
     country,
-    language,
     currency,
     symbol,
     setCountry,
-    setLanguage,
     setCurrency,
     formatPrice,
     productPrice,
     t,
-  }), [country, language, currency, symbol, setCountry, setLanguage, setCurrency, t]);
+  }), [country, currency, symbol, setCountry, setCurrency, t]);
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

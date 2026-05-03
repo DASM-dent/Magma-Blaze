@@ -43,7 +43,7 @@ export default function ProductoPageClient() {
     queryFn: () => productApi.detail(slug).then(r => r.data),
     enabled: Boolean(slug),
   });
-  const { currency, symbol, formatPrice, language, t } = useStoreLocale();
+  const { currency, symbol, formatPrice, t } = useStoreLocale();
   const product: any = data;
   const [activeImage, setActiveImage] = useState(0);
   const [selectedVariantId, setSelectedVariantId] = useState('');
@@ -152,8 +152,8 @@ export default function ProductoPageClient() {
           {variants.length ? (
             <div className="rounded-3xl border border-white/10 bg-white/[.035] p-4">
               <div className="mb-3 flex items-center justify-between gap-3">
-                <p className="text-xs font-bold uppercase tracking-[0.2em] text-white/45">{language === 'en' ? 'Choose variant' : 'Elige la variante'}</p>
-                {selectedVariant ? <span className="rounded-full bg-orange-500/15 px-3 py-1 text-xs text-orange-100">{selectedVariant.stock} {language === 'en' ? 'available' : 'disponibles'}</span> : null}
+                <p className="text-xs font-bold uppercase tracking-[0.2em] text-white/45">Elige la variante</p>
+                {selectedVariant ? <span className="rounded-full bg-orange-500/15 px-3 py-1 text-xs text-orange-100">{selectedVariant.stock} disponibles</span> : null}
               </div>
               <div className="grid gap-2 sm:grid-cols-2">
                 {variants.map((variant: any) => {
@@ -161,7 +161,7 @@ export default function ProductoPageClient() {
                   const out = Number(variant.stock || 0) <= 0;
                   return <button key={variant.id} type="button" onClick={() => setSelectedVariantId(variant.id)} disabled={out} className={`rounded-2xl border p-3 text-left transition ${selected ? 'border-orange-400 bg-orange-500/15 text-white' : 'border-white/10 bg-black/20 text-white/65 hover:border-white/30'} ${out ? 'cursor-not-allowed opacity-45' : ''}`}>
                     <b className="block text-sm">{variantLabel(variant)}</b>
-                    <span className="mt-1 block text-xs text-white/45">{[variant.color, variant.size, variant.model, variant.lens].filter(Boolean).join(' / ') || (language === 'en' ? 'No attributes' : 'Sin atributos')}</span>
+                    <span className="mt-1 block text-xs text-white/45">{[variant.color, variant.size, variant.model, variant.lens].filter(Boolean).join(' / ') || 'Sin atributos'}</span>
                   </button>;
                 })}
               </div>
@@ -170,7 +170,7 @@ export default function ProductoPageClient() {
 
           <div className="flex items-end gap-3">
             <span className="text-4xl font-700 text-white">{formatPrice(displayProduct)}</span>
-            {compare ? <span className="pb-1 text-white/30 line-through">{symbol} {Number(compare).toLocaleString(currency === 'USD' ? 'en-US' : 'es-DO', { minimumFractionDigits: currency === 'USD' ? 2 : 0, maximumFractionDigits: currency === 'USD' ? 2 : 0 })}</span> : null}
+            {compare ? <span className="pb-1 text-white/30 line-through">{symbol} {Number(compare).toLocaleString('es-DO', { minimumFractionDigits: currency === 'USD' ? 2 : 0, maximumFractionDigits: currency === 'USD' ? 2 : 0 })}</span> : null}
           </div>
           {product.discount?.active ? <p className="rounded-2xl border border-orange-400/25 bg-orange-500/10 p-3 text-sm text-orange-50">{product.discount.label || 'Oferta activa'} - {product.discount.percent}% menos</p> : null}
           {currency === 'USD' && !product.priceUsd ? <p className="rounded-2xl border border-yellow-400/20 bg-yellow-500/10 p-3 text-sm text-yellow-100">{t('product.noUsd')}</p> : null}
@@ -179,7 +179,7 @@ export default function ProductoPageClient() {
             {product.isBestSeller ? <span className="badge badge-hot text-xs">{t('badge.bestSeller')}</span> : null}
             {product.isLimitedDrop ? <span className="badge badge-drop text-xs">{t('badge.limitedDrop')}</span> : null}
           </div>
-          <AddToCartButton product={{ name: selectedVariant ? `${product.name} - ${variantLabel(selectedVariant)}` : product.name, slug: product.slug }} disabled={unavailable} />
+          <AddToCartButton product={{ name: selectedVariant ? `${product.name} - ${variantLabel(selectedVariant)}` : product.name, slug: product.slug, variantId: selectedVariant?.id }} disabled={unavailable} />
           <div className="space-y-2 border-t border-white/10 pt-6 text-sm text-white/35">
             <p className="flex gap-2"><span className="text-orange-300">✓</span><span>{t('product.shippingLine')}</span></p>
             <p className="flex gap-2"><span className="text-orange-300">✓</span><span>{t('product.confirmLine')}</span></p>

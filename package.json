@@ -14,6 +14,7 @@
     "db:migrate": "npm --workspace apps/api run prisma:migrate",
     "db:push": "npm --workspace apps/api run prisma:push",
     "db:seed": "npm --workspace apps/api run prisma:seed",
+    "db:seed:faq": "npm --workspace apps/api run prisma:seed:faq",
     "db:studio": "npm --workspace apps/api run prisma:studio",
     "db:reset": "npm --workspace apps/api run prisma:reset"
   },

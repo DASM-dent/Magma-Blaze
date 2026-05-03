@@ -22,7 +22,7 @@ function Field({ label, children }: { label:string; children:React.ReactNode }) 
 export default function CheckoutPage() {
   const cart = useCart();
   const { user } = useAuth();
-  const { country, language, symbol, t, setCountry } = useStoreLocale();
+  const { country, symbol, t, setCountry } = useStoreLocale();
   const [form, setForm] = useState({ country, province: country === 'RD' ? 'La Vega' : 'Florida', city: country === 'RD' ? 'La Vega' : 'Miami', addressLine: '', promoCode: '', paymentMethodId: '' });
   const [submitting, setSubmitting] = useState(false);
 
@@ -33,26 +33,26 @@ export default function CheckoutPage() {
   const subtotal = useMemo(() => cart.items.reduce((sum, item) => sum + item.unitPrice * item.quantity, 0), [cart.items]);
   const sharedCartUrl = useMemo(() => {
     if (typeof window === 'undefined') return '';
-    return createSharedCartUrl(cart.items, window.location.origin, symbol, language);
-  }, [cart.items, language, symbol]);
+    return createSharedCartUrl(cart.items, window.location.origin, symbol);
+  }, [cart.items, symbol]);
   const checkoutLines = (orderId?: string) => [
-    orderId ? `${language === 'en' ? 'Internal order' : 'Pedido interno'}: ${orderId}` : '',
+    orderId ? `Pedido interno: ${orderId}` : '',
     `${t('checkout.country')}: ${form.country}`,
     `${t('checkout.province')}: ${form.province}`,
     `${t('checkout.city')}: ${form.city}`,
     form.addressLine.trim() ? `${t('checkout.address')}: ${form.addressLine.trim()}` : '',
     form.promoCode.trim() ? `${t('checkout.promo')}: ${form.promoCode.trim()}` : '',
-    language === 'en' ? 'Status: pending store confirmation' : 'Estado: pendiente de confirmacion de la tienda',
+    'Estado: pendiente de confirmacion de la tienda',
   ];
   const submitOrder = async () => {
     if (!cart.items.length || submitting) return;
     if (!user) {
-      toast.error(language === 'en' ? 'Log in before placing the order.' : 'Inicia sesion antes de hacer el pedido.');
+      toast.error('Inicia sesion antes de hacer el pedido.');
       window.location.href = '/login?next=/checkout';
       return;
     }
     if (form.addressLine.trim().length < 5) {
-      toast.error(language === 'en' ? 'Add a delivery address.' : 'Agrega una direccion de entrega.');
+      toast.error('Agrega una direccion de entrega.');
       return;
     }
     setSubmitting(true);
@@ -69,12 +69,12 @@ export default function CheckoutPage() {
           paymentMethodId:form.paymentMethodId||undefined,
         }),
       });
-      const orderUrl = cartOrderWhatsappUrl(cart.items, symbol, order.total || subtotal, language, sharedCartUrl, checkoutLines(order.id));
-      toast.success(language === 'en' ? 'Order created. Opening WhatsApp...' : 'Pedido creado. Abriendo WhatsApp...');
+      const orderUrl = cartOrderWhatsappUrl(cart.items, symbol, order.total || subtotal, sharedCartUrl, checkoutLines(order.id));
+      toast.success('Pedido creado. Abriendo WhatsApp...');
       cart.clearCart();
       window.open(orderUrl, '_blank', 'noopener,noreferrer');
     } catch (error:any) {
-      toast.error(error.message || (language === 'en' ? 'Could not create the order.' : 'No se pudo crear el pedido.'));
+      toast.error(error.message || 'No se pudo crear el pedido.');
     } finally {
       setSubmitting(false);
     }
@@ -118,7 +118,7 @@ export default function CheckoutPage() {
               onClick={submitOrder}
               disabled={cart.items.length === 0 || submitting}
             >
-              <MessageCircle size={18} /> {submitting ? (language === 'en' ? 'Creating order...' : 'Creando pedido...') : t('checkout.verifyAvailability')}
+              <MessageCircle size={18} /> {submitting ? 'Creando pedido...' : t('checkout.verifyAvailability')}
             </button>
             <p className="md:col-span-2 rounded-2xl border border-white/10 bg-black/25 p-4 text-sm text-white/65">{t('checkout.whatsappNotice')}</p>
           </div>
@@ -129,10 +129,10 @@ export default function CheckoutPage() {
             {cart.items.map((item) => (
               <div key={item.id} className="flex justify-between gap-4 border-b border-white/5 pb-3 text-sm">
                 <span className="text-white/70">{item.product.name}{item.variant?.name ? ` · ${item.variant.name}` : ''} x {item.quantity}</span>
-                <span className="text-white">{symbol} {(item.unitPrice * item.quantity).toLocaleString(country === 'US' ? 'en-US' : 'es-DO')}</span>
+                <span className="text-white">{symbol} {(item.unitPrice * item.quantity).toLocaleString('es-DO')}</span>
               </div>
             ))}
-            <div className="flex justify-between pt-2 text-lg font-700"><span>{t('checkout.subtotal')}</span><span>{symbol} {subtotal.toLocaleString(country === 'US' ? 'en-US' : 'es-DO')}</span></div>
+            <div className="flex justify-between pt-2 text-lg font-700"><span>{t('checkout.subtotal')}</span><span>{symbol} {subtotal.toLocaleString('es-DO')}</span></div>
           </div>
         </aside>
       </div>

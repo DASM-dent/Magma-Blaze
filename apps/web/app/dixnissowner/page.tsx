@@ -23,7 +23,31 @@ const dateInputValue=(value:any)=>{if(!value)return '';const date=new Date(value
 const discountPreview=(item:any)=>{const price=Number(item.price||0);const value=Number(item.discountValue||0);if(!item.discountActive||item.discountType==='NONE'||!price||!value)return {salePrice:price,percent:0,save:0};let salePrice=price;if(item.discountType==='PERCENT')salePrice=price*(1-Math.min(value,100)/100);if(item.discountType==='FIXED_AMOUNT')salePrice=price-value;if(item.discountType==='FIXED_PRICE')salePrice=value;salePrice=Math.max(0,Math.min(price,Number(salePrice.toFixed(2))));const save=Number((price-salePrice).toFixed(2));return {salePrice,save,percent:price?Math.round((save/price)*100):0}};
 const variantLabel=(variant:any)=>{const explicit=String(variant?.name||'').trim();const parts=[variant?.color,variant?.size,variant?.model,variant?.lens].map(value=>String(value||'').trim()).filter(Boolean);return explicit||parts.join(' / ')||'Variante';};
 const availableStockFor=(product:any)=>Array.isArray(product?.variants)&&product.variants.some((variant:any)=>variant.active)?product.variants.filter((variant:any)=>variant.active).reduce((sum:number,variant:any)=>sum+Number(variant.stock||0),0):Number(product?.availableStock??product?.stock??0);
-const readFile=(file:File)=>new Promise<string>(resolve=>{const r=new FileReader();r.onload=()=>resolve(String(r.result));r.readAsDataURL(file);});
+const readFile=(file:File)=>new Promise<string>((resolve,reject)=>{
+  const raw=()=>{const r=new FileReader();r.onerror=()=>reject(r.error);r.onload=()=>resolve(String(r.result||''));r.readAsDataURL(file);};
+  if(!file.type.startsWith('image/'))return raw();
+  const r=new FileReader();
+  r.onerror=()=>reject(r.error);
+  r.onload=()=>{
+    const source=String(r.result||'');
+    const img=new Image();
+    img.onerror=()=>resolve(source);
+    img.onload=()=>{
+      const maxSide=1400;
+      const scale=Math.min(1,maxSide/Math.max(img.width,img.height));
+      const width=Math.max(1,Math.round(img.width*scale));
+      const height=Math.max(1,Math.round(img.height*scale));
+      const canvas=document.createElement('canvas');
+      canvas.width=width;
+      canvas.height=height;
+      canvas.getContext('2d')?.drawImage(img,0,0,width,height);
+      const optimized=canvas.toDataURL('image/webp',0.82);
+      resolve(optimized.length<source.length?optimized:source);
+    };
+    img.src=source;
+  };
+  r.readAsDataURL(file);
+});
 const slugify=(v:string)=>v.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]+/g,'-').replace(/(^-|-$)+/g,'');
 
 const notificationTypeLabels:any={ORDER:'Pedidos',SUPPORT:'Ayuda',SALES:'Ventas',INVENTORY:'Inventario',SYSTEM:'Sistema'};
@@ -35,7 +59,16 @@ function adminDashboardError(error: unknown) {
   if (status === 401) return { title:'Sesión vencida', body:'Tu sesión administrativa ya no es válida. Inicia sesión otra vez para continuar.', detail };
   if (status === 403) return { title:'Sin permiso', body:'Tu usuario no tiene permiso para cargar el dashboard administrativo.', detail };
   if (status === 408) return { title:'API lenta', body:'La API tardó demasiado en responder. Intenta de nuevo en unos segundos.', detail };
-  if (status === 0) return { title:'API no disponible', body:`No se pudo conectar con la API configurada en ${API_URL}. Confirma que npm run dev siga corriendo.`, detail };
+  if (status === 0) {
+    const isLocal = API_URL.includes('localhost') || API_URL.includes('127.0.0.1');
+    return {
+      title:'API no disponible',
+      body: isLocal
+        ? `No se pudo conectar con la API local configurada en ${API_URL}. Confirma que npm run dev siga corriendo.`
+        : `No se pudo conectar con la API publicada configurada en ${API_URL}. Revisa que el servicio de Render este activo y sin errores de deploy.`,
+      detail
+    };
+  }
   return { title:'No se pudo cargar el panel', body: detail || 'La API respondió con un error inesperado al cargar el dashboard.', detail };
 }
 function Field({label,children,hint}:{label:string;children:ReactNode;hint?:string}){return <label className="admin-field block"><span className="admin-field-label mb-2 block text-xs font-bold uppercase tracking-[.12em]">{label}</span>{children}{hint&&<span className="admin-field-hint mt-1 block text-xs">{hint}</span>}</label>}

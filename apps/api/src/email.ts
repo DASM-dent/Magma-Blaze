@@ -1,5 +1,5 @@
 import crypto from 'crypto';
-import { config } from './config.js';
+import { config, mailConfigured } from './config.js';
 
 type MailPayload = {
   to: string;
@@ -19,7 +19,7 @@ export async function hashCode(code: string) {
 }
 
 export async function sendMail(payload: MailPayload) {
-  if (!config.smtpHost || !config.smtpUser || !config.smtpPass) {
+  if (!mailConfigured()) {
     console.warn(`[MAIL NO CONFIGURADO] No se envió correo a ${payload.to}. Configura SMTP_HOST, SMTP_USER y SMTP_PASS en apps/api/.env. El código no se muestra por seguridad.`);
     return { sent: false };
   }

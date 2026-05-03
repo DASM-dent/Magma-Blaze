@@ -3,6 +3,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { api } from '@/lib/api';
 import { useAuth } from '@/context/AuthContext';
+import { toast } from 'sonner';
 
 export type FavoriteProduct = {
   id: string;
@@ -145,20 +146,51 @@ export function FavoritesProvider({ children }: { children: React.ReactNode }) {
   const isFavorite = useCallback((id: string) => favorites.some((product) => product.id === id), [favorites]);
 
   const toggleFavorite = useCallback((product: FavoriteProduct) => {
+    if (!user) {
+      toast('Inicia sesion para guardar favoritos', {
+        description: 'Tus favoritos quedaran guardados en tu cuenta y podras verlos desde tu perfil.',
+        action: {
+          label: 'Entrar',
+          onClick: () => {
+            window.location.href = `/login?next=${encodeURIComponent(window.location.pathname + window.location.search)}`;
+          },
+        },
+      });
+      return;
+    }
     const exists = favorites.some((item) => item.id === product.id);
     setFavorites((current) => {
       if (current.some((item) => item.id === product.id)) return current.filter((item) => item.id !== product.id);
       const nextFavorite = normalizeFavorite(product);
       return nextFavorite ? [nextFavorite, ...current] : current;
     });
-    if (user) {
-      setSyncStatus('syncing');
-      const path = exists ? `/account/favorites/${product.id}` : '/account/favorites';
-      const options = exists ? { method: 'DELETE' } : { method: 'POST', body: JSON.stringify({ productId: product.id }) };
-      api(path, options)
-        .then(() => { setSyncStatus('synced'); setLastSyncedAt(new Date().toISOString()); })
-        .catch(() => setSyncStatus('error'));
-    }
+    setSyncStatus('syncing');
+    const path = exists ? `/account/favorites/${product.id}` : '/account/favorites';
+    const options = exists ? { method: 'DELETE' } : { method: 'POST', body: JSON.stringify({ productId: product.id }) };
+    api(path, options)
+      .then(() => {
+        setSyncStatus('synced');
+        setLastSyncedAt(new Date().toISOString());
+        if (exists) {
+          toast('Producto quitado de favoritos', { description: product.name });
+        } else {
+          toast.success('Producto agregado a favoritos', {
+            description: product.name,
+            action: {
+              label: 'Cuenta',
+              onClick: () => {
+                window.location.href = '/cuenta';
+              },
+            },
+          });
+        }
+      })
+      .catch(() => {
+        setSyncStatus('error');
+        toast.error('No se pudo sincronizar favoritos', {
+          description: 'El cambio quedo local por ahora. Intenta de nuevo si no aparece en tu cuenta.',
+        });
+      });
   }, [favorites, user]);
 
   const removeFavorite = useCallback((id: string) => {

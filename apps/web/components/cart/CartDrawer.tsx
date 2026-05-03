@@ -12,13 +12,13 @@ import { createSharedCartUrl } from "@/lib/cartShare";
 
 export default function CartDrawer() {
   const { isOpen, closeCart, items, subtotal, itemCount, updateItem, removeItem, clearCart } = useCart();
-  const { language, symbol, t } = useStoreLocale();
+  const { symbol, t } = useStoreLocale();
   const [copied, setCopied] = useState(false);
 
   const sharedCartUrl = useMemo(() => {
     if (typeof window === "undefined") return "";
-    return createSharedCartUrl(items, window.location.origin, symbol, language);
-  }, [items, language, symbol]);
+    return createSharedCartUrl(items, window.location.origin, symbol);
+  }, [items, symbol]);
 
 
   const shareCart = async () => {

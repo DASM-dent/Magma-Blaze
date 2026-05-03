@@ -15,7 +15,7 @@ export type SharedCartPayload = {
   items: SharedCartItem[];
   subtotal: number;
   symbol: string;
-  language: 'es' | 'en';
+  language: 'es';
   createdAt: string;
 };
 
@@ -51,7 +51,7 @@ function fromBase64Url(value: string) {
   return new TextDecoder().decode(bytes);
 }
 
-export function buildSharedCartPayload(items: CartItem[], symbol: string, language: 'es' | 'en'): SharedCartPayload {
+export function buildSharedCartPayload(items: CartItem[], symbol: string): SharedCartPayload {
   const sharedItems = items.slice(0, MAX_SHARED_ITEMS).map((item) => {
     const unitPrice = sanitizeNumber(item.unitPrice || item.product.price);
     const quantity = Math.max(1, Math.min(99, Number(item.quantity || 1)));
@@ -74,7 +74,7 @@ export function buildSharedCartPayload(items: CartItem[], symbol: string, langua
     items: sharedItems,
     subtotal,
     symbol,
-    language,
+    language: 'es',
     createdAt: new Date().toISOString(),
   };
 }
@@ -115,7 +115,7 @@ export function parseSharedCartToken(token?: string | null): SharedCartPayload |
       items,
       subtotal: sanitizeNumber(parsed.subtotal, items.reduce((sum, item) => sum + item.unitPrice * item.quantity, 0)),
       symbol: sanitizeText(parsed.symbol, 'RD$') || 'RD$',
-      language: parsed.language === 'en' ? 'en' : 'es',
+      language: 'es',
       createdAt: sanitizeText(parsed.createdAt, new Date().toISOString()),
     };
   } catch {
@@ -123,9 +123,9 @@ export function parseSharedCartToken(token?: string | null): SharedCartPayload |
   }
 }
 
-export function createSharedCartUrl(items: CartItem[], origin: string, symbol: string, language: 'es' | 'en') {
+export function createSharedCartUrl(items: CartItem[], origin: string, symbol: string) {
   if (!items.length || !origin) return '';
-  const payload = buildSharedCartPayload(items, symbol, language);
+  const payload = buildSharedCartPayload(items, symbol);
   const url = new URL('/carrito-compartido', origin);
   url.searchParams.set('cart', createSharedCartToken(payload));
   return url.toString();

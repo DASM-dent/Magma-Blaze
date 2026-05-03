@@ -11,13 +11,13 @@ import { createSharedCartUrl } from '@/lib/cartShare';
 
 export default function CartPage() {
   const cart = useCart();
-  const { language, symbol, t } = useStoreLocale();
+  const { symbol, t } = useStoreLocale();
   const [copied, setCopied] = useState(false);
 
   const sharedCartUrl = useMemo(() => {
     if (typeof window === 'undefined') return '';
-    return createSharedCartUrl(cart.items, window.location.origin, symbol, language);
-  }, [cart.items, language, symbol]);
+    return createSharedCartUrl(cart.items, window.location.origin, symbol);
+  }, [cart.items, symbol]);
 
 
   const shareCart = async () => {
@@ -88,9 +88,9 @@ export default function CartPage() {
                   </Link>
                   {item.variant?.name && <p className="mt-1 text-sm text-white/40">{item.variant.name}</p>}
                   <div className="mt-3 grid gap-2 text-sm text-white/55 sm:grid-cols-3">
-                    <span>{t('cart.unitPrice')}: <strong className="text-white">{symbol} {item.unitPrice.toLocaleString(language === 'en' ? 'en-US' : 'es-DO')}</strong></span>
+                    <span>{t('cart.unitPrice')}: <strong className="text-white">{symbol} {item.unitPrice.toLocaleString('es-DO')}</strong></span>
                     <span>{t('cart.quantity')}: <strong className="text-white">{item.quantity}</strong></span>
-                    <span>{t('cart.lineTotal')}: <strong className="text-ember-DEFAULT">{symbol} {(item.unitPrice * item.quantity).toLocaleString(language === 'en' ? 'en-US' : 'es-DO')}</strong></span>
+                    <span>{t('cart.lineTotal')}: <strong className="text-ember-DEFAULT">{symbol} {(item.unitPrice * item.quantity).toLocaleString('es-DO')}</strong></span>
                   </div>
                 </div>
 
@@ -133,7 +133,7 @@ export default function CartPage() {
               </div>
               <div className="flex items-center justify-between text-xl font-700 text-white">
                 <span>{t('cart.total')}</span>
-                <span>{symbol} {cart.subtotal.toLocaleString(language === 'en' ? 'en-US' : 'es-DO')}</span>
+                <span>{symbol} {cart.subtotal.toLocaleString('es-DO')}</span>
               </div>
             </div>
 

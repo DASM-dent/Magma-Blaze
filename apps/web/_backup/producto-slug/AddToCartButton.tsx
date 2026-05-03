@@ -4,7 +4,7 @@ import { useStoreLocale } from '@/context/LocaleContext';
 import { productAvailabilityWhatsappUrl } from '@/lib/whatsapp';
 
 export default function AddToCartButton({ product, disabled }: { product: { name: string; slug?: string | null }; disabled?: boolean }) {
-  const { language, t } = useStoreLocale();
+  const { t } = useStoreLocale();
 
   if (disabled) {
     return (
@@ -16,7 +16,7 @@ export default function AddToCartButton({ product, disabled }: { product: { name
 
   return (
     <a
-      href={productAvailabilityWhatsappUrl(product, language)}
+      href={productAvailabilityWhatsappUrl(product)}
       target="_blank"
       rel="noreferrer"
       className="btn-ember w-full px-10 md:w-auto"

@@ -14,7 +14,7 @@ import { useStoreLocale } from "@/context/LocaleContext";
 export default function Navbar() {
   const { itemCount, openCart } = useCart();
   const { user } = useAuth();
-  const { country, language, currency, symbol, setCountry, setLanguage, setCurrency, t } = useStoreLocale();
+  const { country, currency, symbol, setCountry, setCurrency, t } = useStoreLocale();
   const [scrolled, setScrolled] = useState(false);
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<unknown[]>([]);
@@ -155,7 +155,7 @@ export default function Navbar() {
                 aria-expanded={localeOpen}
               >
                 <Globe2 className="h-4 w-4 text-white/45" />
-                <span>{language.toUpperCase()} · {symbol}</span>
+                <span>{country} / {symbol}</span>
                 <ChevronDown className={`h-4 w-4 text-white/45 transition ${localeOpen ? "rotate-180" : ""}`} />
               </button>
 
@@ -169,21 +169,6 @@ export default function Navbar() {
                     className="absolute right-0 top-12 w-64 rounded-2xl border border-white/10 bg-[#090909]/95 p-3 shadow-2xl shadow-black/50 backdrop-blur-xl"
                   >
                     <div className="space-y-3">
-                      <div>
-                        <p className="mb-2 px-2 text-[11px] font-bold uppercase tracking-[0.14em] text-white/40">{t("locale.language")}</p>
-                        <div className="grid grid-cols-2 gap-2">
-                          {(["es", "en"] as const).map((l) => (
-                            <button
-                              key={l}
-                              onClick={() => setLanguage(l)}
-                              className={`flex items-center justify-between rounded-xl px-3 py-2 text-sm transition ${language === l ? "bg-white text-black" : "bg-white/[.05] text-white/65 hover:bg-white/10 hover:text-white"}`}
-                            >
-                              {l === "es" ? t("locale.spanish") : t("locale.english")}
-                              {language === l && <Check className="h-4 w-4" />}
-                            </button>
-                          ))}
-                        </div>
-                      </div>
 
                       <div>
                         <p className="mb-2 px-2 text-[11px] font-bold uppercase tracking-[0.14em] text-white/40">{t("locale.country")}</p>
@@ -252,10 +237,7 @@ export default function Navbar() {
                     {l.label}
                   </Link>
                 ))}
-                <div className="grid grid-cols-3 gap-2 border-t border-white/10 pt-4">
-                  {(["es", "en"] as const).map((l) => (
-                    <button key={l} onClick={() => setLanguage(l)} className={`rounded-full px-3 py-2 text-sm font-bold ${language === l ? "bg-white text-black" : "bg-white/10 text-white/70"}`}>{l.toUpperCase()}</button>
-                  ))}
+                <div className="grid grid-cols-2 gap-2 border-t border-white/10 pt-4">
                   {(["DOP", "USD"] as const).map((c) => (
                     <button key={c} onClick={() => setCurrency(c)} className={`rounded-full px-3 py-2 text-sm font-bold ${currency === c ? "bg-orange-500 text-black" : "bg-white/10 text-white/70"}`}>{c === "DOP" ? "RD$" : "US$"}</button>
                   ))}

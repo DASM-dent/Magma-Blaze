@@ -4,7 +4,7 @@ import helmet from 'helmet';
 import morgan from 'morgan';
 import cookieParser from 'cookie-parser';
 import rateLimit from 'express-rate-limit';
-import { config } from './config.js';
+import { config, mailConfigured } from './config.js';
 import { prisma } from './prisma.js';
 import authRoutes from './routes/auth.js';
 import productRoutes from './routes/products.js';
@@ -57,9 +57,9 @@ app.use(blockBannedIp);
 app.get('/health', async (_req, res) => {
   try {
     await prisma.$queryRaw`SELECT 1`;
-    res.json({ ok:true, service:'magma-api', database:'ok' });
+    res.json({ ok:true, service:'magma-api', database:'ok', mail: mailConfigured() ? 'configured' : 'missing' });
   } catch {
-    res.status(500).json({ ok:false, service:'magma-api', database:'error', message:'La API corre, pero la base de datos no esta lista. Ejecuta npm run db:migrate y npm run db:seed.' });
+    res.status(500).json({ ok:false, service:'magma-api', database:'error', mail: mailConfigured() ? 'configured' : 'missing', message:'La API corre, pero la base de datos no esta lista. Ejecuta npm run db:migrate y npm run db:seed.' });
   }
 });
 

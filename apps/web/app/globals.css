@@ -92,6 +92,15 @@ button, input, select, textarea { font: inherit; }
   padding: .7rem .85rem;
 }
 .input-dark:focus { border-color: rgba(255,69,0,.65); box-shadow: 0 0 0 3px rgba(255,69,0,.12); }
+.login-auth-card input:-webkit-autofill,
+.login-auth-card input:-webkit-autofill:hover,
+.login-auth-card input:-webkit-autofill:focus {
+  -webkit-box-shadow: 0 0 0 1000px #0b0806 inset !important;
+  -webkit-text-fill-color: #fff !important;
+  caret-color: #fff;
+  border-color: rgba(255, 122, 24, .45) !important;
+  transition: background-color 9999s ease-out;
+}
 .product-card {
   background: rgba(255,255,255,.035);
   border: 1px solid rgba(255,255,255,.08);
@@ -99,7 +108,7 @@ button, input, select, textarea { font: inherit; }
   transition: transform .25s ease, border-color .25s ease, box-shadow .25s ease;
 }
 .product-card:hover { transform: translateY(-3px); border-color: rgba(255,69,0,.35); box-shadow: 0 20px 70px rgba(0,0,0,.35); }
-.badge { display: inline-flex; align-items: center; border-radius: 999px; padding: .28rem .55rem; font-weight: 800; text-transform: uppercase; letter-spacing: .08em; }
+.badge { display: inline-flex; align-items: center; width: fit-content; max-width: 100%; white-space: nowrap; border-radius: 999px; padding: .28rem .55rem; font-weight: 800; text-transform: uppercase; letter-spacing: .08em; }
 .badge-drop { background: rgba(255,69,0,.95); color: white; }
 .badge-new { background: rgba(255,255,255,.9); color: #0a0a0a; }
 .badge-hot { background: rgba(255,122,24,.95); color: white; }

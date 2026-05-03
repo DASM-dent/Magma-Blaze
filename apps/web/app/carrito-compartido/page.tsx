@@ -12,7 +12,7 @@ import { cartOrderWhatsappUrl } from '@/lib/whatsapp';
 
 export default function SharedCartPage() {
   const cart = useCart();
-  const { language, t } = useStoreLocale();
+  const { t } = useStoreLocale();
   const [payload, setPayload] = useState<SharedCartPayload | null>(null);
   const [loaded, setLoaded] = useState(false);
 
@@ -29,7 +29,7 @@ export default function SharedCartPage() {
   );
   const currentUrl = typeof window === 'undefined' ? '' : window.location.href;
   const orderUrl = payload
-    ? cartOrderWhatsappUrl(itemsForCart, payload.symbol, subtotal, payload.language || language, currentUrl)
+    ? cartOrderWhatsappUrl(itemsForCart, payload.symbol, subtotal, currentUrl)
     : '';
 
   const addSharedCart = () => {
@@ -86,14 +86,14 @@ export default function SharedCartPage() {
                 </Link>
                 {item.variantName && <p className="mt-1 text-sm text-white/40">{item.variantName}</p>}
                 <div className="mt-3 grid gap-2 text-sm text-white/55 sm:grid-cols-3">
-                  <span>{t('cart.unitPrice')}: <strong className="text-white">{payload.symbol} {item.unitPrice.toLocaleString(payload.language === 'en' ? 'en-US' : 'es-DO')}</strong></span>
+                  <span>{t('cart.unitPrice')}: <strong className="text-white">{payload.symbol} {item.unitPrice.toLocaleString('es-DO')}</strong></span>
                   <span>{t('cart.quantity')}: <strong className="text-white">{item.quantity}</strong></span>
-                  <span>{t('cart.lineTotal')}: <strong className="text-ember-DEFAULT">{payload.symbol} {(item.unitPrice * item.quantity).toLocaleString(payload.language === 'en' ? 'en-US' : 'es-DO')}</strong></span>
+                  <span>{t('cart.lineTotal')}: <strong className="text-ember-DEFAULT">{payload.symbol} {(item.unitPrice * item.quantity).toLocaleString('es-DO')}</strong></span>
                 </div>
               </div>
 
               <p className="self-center text-right font-700 text-white">
-                {payload.symbol} {(item.unitPrice * item.quantity).toLocaleString(payload.language === 'en' ? 'en-US' : 'es-DO')}
+                {payload.symbol} {(item.unitPrice * item.quantity).toLocaleString('es-DO')}
               </p>
             </article>
           ))}
@@ -108,7 +108,7 @@ export default function SharedCartPage() {
             </div>
             <div className="flex items-center justify-between text-xl font-700 text-white">
               <span>{t('cart.total')}</span>
-              <span>{payload.symbol} {subtotal.toLocaleString(payload.language === 'en' ? 'en-US' : 'es-DO')}</span>
+              <span>{payload.symbol} {subtotal.toLocaleString('es-DO')}</span>
             </div>
           </div>
 
