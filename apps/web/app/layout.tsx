@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import './globals.css';
 import Providers from './providers';
 import AppChrome from '@/components/layout/AppChrome';
+import AdsenseScript from '@/components/AdsenseScript';
 
 export const metadata: Metadata = {
   title: 'Magma Blaze',
@@ -18,6 +19,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="es">
       <body>
         <Providers>
+          <AdsenseScript />
           <AppChrome>{children}</AppChrome>
         </Providers>
       </body>
