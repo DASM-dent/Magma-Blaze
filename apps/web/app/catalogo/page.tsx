@@ -47,7 +47,7 @@ function CatalogoContent() {
     } else {
       current.set(key, String(value));
     }
-    current.delete("pagina");
+    if (key !== "pagina") current.delete("pagina");
     router.push(`/catalogo?${current.toString()}`);
   };
 

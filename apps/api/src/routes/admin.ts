@@ -160,7 +160,7 @@ function toProduct(p:any){
   const active=activeDiscount(p);
   const salePrice=active?centsToUnit(active.finalCents):price;
   const salePriceUsd=active?rdToUsd(salePrice):priceUsd;
-  const variants=Array.isArray(p.variants)?p.variants.sort((a:any,b:any)=>(a.sortOrder??0)-(b.sortOrder??0)).map(toProductVariant):[];
+  const variants=Array.isArray(p.variants)?p.variants.filter((variant:any)=>variant.active!==false).sort((a:any,b:any)=>(a.sortOrder??0)-(b.sortOrder??0)).map(toProductVariant):[];
   const activeVariants=variants.filter((variant:any)=>variant.active);
   const totalVariantStock=activeVariants.reduce((sum:number,variant:any)=>sum+Number(variant.stock||0),0);
   const hasVariants=activeVariants.length>0;
@@ -397,6 +397,18 @@ router.patch('/products/:id',async(req,res)=>{
       await tx.inventoryMovement.create({data:{productId:updated.id,type:'ADJUSTMENT',quantity:delta,reason:'Ajuste desde administracion',reference:updated.id}});
     }
     if(nextVariants!==undefined){
+      const submittedVariantIds=new Set(nextVariants.map((variant:any)=>String(variant.id||'').trim()).filter(Boolean));
+      const existingVariants=await tx.productVariant.findMany({where:{productId:updated.id},select:{id:true}});
+      for(const existingVariant of existingVariants){
+        if(submittedVariantIds.has(existingVariant.id))continue;
+        const used=await tx.orderItem.count({where:{variantId:existingVariant.id}});
+        const movementUsed=await tx.inventoryMovement.count({where:{variantId:existingVariant.id}});
+        if(used>0||movementUsed>0){
+          await tx.productVariant.update({where:{id:existingVariant.id},data:{active:false,stock:0}});
+          continue;
+        }
+        await tx.productVariant.delete({where:{id:existingVariant.id}});
+      }
       for(const variant of nextVariants){
         const {id,...variantData}=variant as any;
         const dataForDb={...variantData,price:variantData.price??updated.price,priceUsd:variantData.priceUsd??updated.priceUsd};
@@ -504,7 +516,7 @@ router.post('/orders/:id/confirm-sale',async(req,res)=>{
       }
       await tx.inventoryMovement.create({data:{productId:item.productId,type:'SALE',quantity:-item.quantity,reason:'Venta confirmada por admin',reference:current.id,variantId:item.variantId||undefined}});
     }
-    await tx.paymentTransaction.updateMany({where:{orderId:current.id,status:{in:['PENDING_CONFIRMATION','PENDING','AWAITING_ADMIN_CONFIRMATION']}},data:{status:'CONFIRMED'}});
+    await tx.paymentTransaction.updateMany({where:{orderId:current.id,status:{in:['PENDING_CONFIRMATION','PENDING','PARTIAL','AWAITING_ADMIN_CONFIRMATION']}},data:{status:'CONFIRMED'}});
     await tx.orderEvent.create({data:{orderId:current.id,userId:req.user?.id,type:'SALE_CONFIRMED',title:'Venta confirmada',body:'Admin confirmo pago/disponibilidad y el inventario fue descontado.'}});
     return tx.order.update({where:{id:current.id},data:{status:'PROCESSING',paymentStatus:'CONFIRMED',confirmationStatus:'CONFIRMED',inventoryCommitted:true,confirmedAt:new Date(),shippingStatus:'Venta confirmada'},include:{user:true,items:{include:{product:true,variant:true}},events:{take:8,orderBy:{createdAt:'desc'},include:{user:{select:{id:true,name:true,role:true}}}}}});
   });
@@ -765,6 +777,9 @@ const manualSaleSchema = z.object({
   reference:z.string().optional().nullable(),
   note:z.string().optional().nullable(),
   currency:z.enum(['DOP','USD']).default('DOP'),
+  paidByTransfer:z.boolean().default(false),
+  paymentStatus:z.enum(['PENDING','PARTIAL','PAID']).default('PENDING'),
+  paidAmount:z.number().min(0).default(0),
   items:z.array(z.object({
     productId:z.string().min(1),
     variantId:z.string().optional().nullable(),
@@ -837,13 +852,16 @@ router.post('/sales/manual', async(req,res)=>{
   }
   const subtotal=orderItems.reduce((sum,item)=>sum+(item.price*item.quantity),0);
   const channelLabel=SALES_CHANNEL_LABELS[data.channel]||data.channel;
+  const paidAmount=data.paymentStatus==='PAID'?subtotal:Math.min(subtotal,unitToCents(data.paymentStatus==='PARTIAL'?data.paidAmount:0));
+  const paymentProvider=data.paidByTransfer?'TRANSFERENCIA':data.channel;
+  const isPaid=data.paymentStatus==='PAID';
   const order=await prisma.$transaction(async tx=>{
     const manualUser=await getManualSaleUser(tx);
     const created=await tx.order.create({
       data:{
         userId:manualUser.id,
-        status:'DELIVERED',
-        shippingStatus:'ENTREGADO',
+        status:isPaid?'DELIVERED':'PENDING',
+        shippingStatus:isPaid?'ENTREGADO':'PENDIENTE DE PAGO',
         subtotal,
         discount:0,
         shipping:0,
@@ -851,38 +869,40 @@ router.post('/sales/manual', async(req,res)=>{
         country:'RD',
         currency:data.currency,
         salesChannel:data.channel,
-        paymentStatus:'PAID',
-        paymentProvider:data.channel,
+        paymentStatus:data.paymentStatus,
+        paymentProvider,
         paymentReference:data.reference?.trim()||null,
         addressLine:`Venta manual${data.customerName?.trim()?` - ${data.customerName.trim()}`:''}`,
         adminNote:data.note?.trim()||null,
-        deliveredAt:new Date(),
-        inventoryCommitted:true,
-        confirmationStatus:'CONFIRMED',
-        confirmedAt:new Date(),
+        deliveredAt:isPaid?new Date():null,
+        inventoryCommitted:isPaid,
+        confirmationStatus:isPaid?'CONFIRMED':'UNCONFIRMED',
+        confirmedAt:isPaid?new Date():null,
         items:{create:orderItems.map(item=>({productId:item.product.id,variantId:item.variant?.id||null,quantity:item.quantity,price:item.price}))},
-        payments:{create:{provider:data.channel,status:'PAID',amount:subtotal,currency:data.currency,reference:data.reference?.trim()||null}},
+        payments:{create:{provider:paymentProvider,status:data.paymentStatus,amount:paidAmount,currency:data.currency,reference:data.reference?.trim()||null,metadata:JSON.stringify({paidByTransfer:data.paidByTransfer,balance:subtotal-paidAmount})}},
       },
       include:{user:true,items:{include:{product:{include:{category:true}},variant:true}},payments:true},
     });
-    for(const item of orderItems){
-      if(item.variant){
-        const updated=await tx.productVariant.updateMany({where:{id:item.variant.id,stock:{gte:item.quantity}},data:{stock:{decrement:item.quantity}}});
-        if(updated.count!==1)throw new Error(`Stock insuficiente para ${item.product.name} - ${variantDisplayName(item.variant)}.`);
-      }else{
-        const updated=await tx.product.updateMany({where:{id:item.product.id,stock:{gte:item.quantity}},data:{stock:{decrement:item.quantity}}});
-        if(updated.count!==1)throw new Error(`Stock insuficiente para ${item.product.name}.`);
+    if(isPaid){
+      for(const item of orderItems){
+        if(item.variant){
+          const updated=await tx.productVariant.updateMany({where:{id:item.variant.id,stock:{gte:item.quantity}},data:{stock:{decrement:item.quantity}}});
+          if(updated.count!==1)throw new Error(`Stock insuficiente para ${item.product.name} - ${variantDisplayName(item.variant)}.`);
+        }else{
+          const updated=await tx.product.updateMany({where:{id:item.product.id,stock:{gte:item.quantity}},data:{stock:{decrement:item.quantity}}});
+          if(updated.count!==1)throw new Error(`Stock insuficiente para ${item.product.name}.`);
+        }
+        await tx.inventoryMovement.create({
+          data:{
+            productId:item.product.id,
+            variantId:item.variant?.id||undefined,
+            type:'SALE',
+            quantity:-item.quantity,
+            reason:`Venta manual: ${channelLabel}`,
+            reference:created.id,
+          },
+        });
       }
-      await tx.inventoryMovement.create({
-        data:{
-          productId:item.product.id,
-          variantId:item.variant?.id||undefined,
-          type:'SALE',
-          quantity:-item.quantity,
-          reason:`Venta manual: ${channelLabel}`,
-          reference:created.id,
-        },
-      });
     }
     await tx.orderEvent.create({
       data:{
@@ -891,7 +911,7 @@ router.post('/sales/manual', async(req,res)=>{
         type:'MANUAL_SALE_CREATED',
         title:`Venta registrada por ${channelLabel}`,
         body:data.note?.trim()||undefined,
-        metadata:JSON.stringify({channel:data.channel,reference:data.reference||null}),
+        metadata:JSON.stringify({channel:data.channel,reference:data.reference||null,paymentStatus:data.paymentStatus,paidAmount:centsToUnit(paidAmount),paidByTransfer:data.paidByTransfer}),
       },
     }).catch(()=>null);
     return created;
@@ -929,11 +949,19 @@ router.get('/reports',async(req,res)=>{
     const current=productSales.get(item.productId)||{id:item.productId,name:item.product?.name||item.productId,quantity:0,revenue:0,stock:item.product?.stock||0,category:item.product?.category?.name||'Sin categoria'};
     current.quantity+=item.quantity; current.revenue+=item.price*item.quantity; productSales.set(item.productId,current);
   }));
+  const paidFor=(order:any)=>order.payments?.reduce((sum:number,payment:any)=>sum+(['PAID','CONFIRMED','PARTIAL'].includes(payment.status)?payment.amount:0),0)||0;
+  const manualOrders=completed.filter((order:any)=>order.salesChannel&&order.salesChannel!=='WEB');
   const monthOrders=completed.filter(order=>reportDateKey(order.createdAt).startsWith(month));
+  const manualMonthOrders=manualOrders.filter(order=>reportDateKey(order.createdAt).startsWith(month));
   const dailySales=Array.from({length:daysInMonth}).map((_,index)=>{
     const date=`${month}-${String(index+1).padStart(2,'0')}`;
     const dayOrders=monthOrders.filter(o=>reportDateKey(o.createdAt)===date);
     return {date,orders:dayOrders.length,revenue:centsToUnit(dayOrders.reduce((s,o)=>s+o.total,0)),profit:centsToUnit(dayOrders.reduce((s,o)=>s+o.total-o.items.reduce((cost,item)=>cost+((item.product?.cost||0)*item.quantity),0),0))};
+  });
+  const manualDailySales=Array.from({length:daysInMonth}).map((_,index)=>{
+    const date=`${month}-${String(index+1).padStart(2,'0')}`;
+    const dayOrders=manualMonthOrders.filter(o=>reportDateKey(o.createdAt)===date);
+    return {date,orders:dayOrders.length,revenue:centsToUnit(dayOrders.reduce((s,o)=>s+o.total,0)),paid:centsToUnit(dayOrders.reduce((s,o)=>s+paidFor(o),0)),profit:centsToUnit(dayOrders.reduce((s,o)=>s+o.total-o.items.reduce((cost,item)=>cost+((item.product?.cost||0)*item.quantity),0),0))};
   });
   const categorySales=new Map<string,{name:string;quantity:number;revenue:number}>();
   completed.forEach(order=>order.items.forEach(item=>{
@@ -944,6 +972,10 @@ router.get('/reports',async(req,res)=>{
     categorySales.set(key,current);
   }));
   const lowStock=products.map(toProduct).filter((p:any)=>p.availableStock<=p.lowStockThreshold);
+  const manualTotal=manualMonthOrders.reduce((sum,order)=>sum+order.total,0);
+  const manualPaid=manualMonthOrders.reduce((sum,order)=>sum+paidFor(order),0);
+  const manualCost=manualMonthOrders.reduce((sum,order)=>sum+order.items.reduce((itemSum,item)=>itemSum+((item.product?.cost||0)*item.quantity),0),0);
+  const manualPaymentCounts=manualMonthOrders.reduce((acc:any,order:any)=>{acc[order.paymentStatus]=(acc[order.paymentStatus]||0)+1;return acc;},{});
   res.json({
     summary:{
       orders:orders.length,
@@ -976,6 +1008,21 @@ router.get('/reports',async(req,res)=>{
       salesChannelLabel:SALES_CHANNEL_LABELS[(order as any).salesChannel||order.paymentProvider||'WEB']||((order as any).salesChannel||order.paymentProvider||'Web'),
       customerName:order.addressLine?.startsWith('Venta manual')?order.addressLine.replace('Venta manual - ','').replace('Venta manual','').trim()||'Venta manual':order.user?.name,
       itemSummary:order.items.map(item=>`${item.quantity} x ${item.product?.name||'Producto'}`).join(' + '),
+      paidAmount:centsToUnit(paidFor(order)),
+      balance:centsToUnit(Math.max(0,order.total-paidFor(order))),
+    })),
+    manualSummary:{orders:manualOrders.length,revenue:centsToUnit(manualTotal),paid:centsToUnit(manualPaid),pending:centsToUnit(Math.max(0,manualTotal-manualPaid)),profit:centsToUnit(manualTotal-manualCost),margin:manualTotal?Number((((manualTotal-manualCost)/manualTotal)*100).toFixed(1)):0},
+    manualPaymentCounts,
+    manualDailySales,
+    manualOrders:manualMonthOrders.map(order=>({
+      ...toOrder(order),
+      date:reportDateKey(order.createdAt),
+      salesChannel:(order as any).salesChannel||order.paymentProvider||'WEB',
+      salesChannelLabel:SALES_CHANNEL_LABELS[(order as any).salesChannel||order.paymentProvider||'WEB']||((order as any).salesChannel||order.paymentProvider||'Web'),
+      customerName:order.addressLine?.startsWith('Venta manual')?order.addressLine.replace('Venta manual - ','').replace('Venta manual','').trim()||'Venta manual':order.user?.name,
+      itemSummary:order.items.map(item=>`${item.quantity} x ${item.product?.name||'Producto'}`).join(' + '),
+      paidAmount:centsToUnit(paidFor(order)),
+      balance:centsToUnit(Math.max(0,order.total-paidFor(order))),
     })),
     dailySales,
     categorySales:[...categorySales.values()].sort((a,b)=>b.revenue-a.revenue).map(item=>({...item,revenue:centsToUnit(item.revenue)})),

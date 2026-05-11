@@ -15,7 +15,7 @@ type GalleryImage = { url: string; alt: string; sortOrder: number };
 function variantLabel(variant: any) {
   const explicit = String(variant?.name || '').trim();
   const parts = [variant?.color, variant?.size, variant?.model, variant?.lens].map(value => String(value || '').trim()).filter(Boolean);
-  return explicit || parts.join(' / ') || 'Variante';
+  return explicit || parts.join(' / ') || 'Opcion';
 }
 
 function ProductRail({ title, subtitle, products, offset = 0 }: { title: string; subtitle: string; products?: any[]; offset?: number }) {
@@ -152,7 +152,7 @@ export default function ProductoPageClient() {
           {variants.length ? (
             <div className="rounded-3xl border border-white/10 bg-white/[.035] p-4">
               <div className="mb-3 flex items-center justify-between gap-3">
-                <p className="text-xs font-bold uppercase tracking-[0.2em] text-white/45">Elige la variante</p>
+                <p className="text-xs font-bold uppercase tracking-[0.2em] text-white/45">Elige color/modelo</p>
                 {selectedVariant ? <span className="rounded-full bg-orange-500/15 px-3 py-1 text-xs text-orange-100">{selectedVariant.stock} disponibles</span> : null}
               </div>
               <div className="grid gap-2 sm:grid-cols-2">

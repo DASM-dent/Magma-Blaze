@@ -13,7 +13,7 @@ export function ProductCard({ product }: { product:any }) {
     <div className="space-y-3 p-5">
       <Link href={`/producto?slug=${encodeURIComponent(product.slug)}`} className="text-xl font-black hover:text-blaze">{product.name}</Link>
       <p className="line-clamp-2 text-sm text-white/60">{product.description}</p>
-      <div className="flex items-center justify-between"><strong>{formatPrice(product)}</strong><span className="text-xs text-white/50">{product.variantCount ? `${product.variantCount} variantes · ${stock} disp.` : `Stock: ${stock}`}</span></div>
+      <div className="flex items-center justify-between"><strong>{formatPrice(product)}</strong><span className="text-xs text-white/50">{product.variantCount ? `${product.variantCount} opciones · ${stock} disp.` : `Stock: ${stock}`}</span></div>
       <a
         href={disabled ? undefined : productAvailabilityWhatsappUrl(product)}
         target="_blank"

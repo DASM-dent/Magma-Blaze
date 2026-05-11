@@ -1,19 +1,25 @@
 'use client';
 
-import Image from 'next/image';
 import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
 import { MessageCircle, ShoppingBag } from 'lucide-react';
-import { toast } from 'sonner';
 import { useCart } from '@/context/CartContext';
 import { useStoreLocale } from '@/context/LocaleContext';
 import { parseSharedCartToken, sharedCartPayloadToItems, type SharedCartPayload } from '@/lib/cartShare';
 import { cartOrderWhatsappUrl } from '@/lib/whatsapp';
+import { productApi } from '@/services/api';
+
+function productImage(product: any) {
+  const firstImage = Array.isArray(product?.images) ? product.images[0] : null;
+  const firstImageUrl = typeof firstImage === 'string' ? firstImage : firstImage?.url;
+  return product?.mainImage || product?.imageUrl || product?.image || firstImageUrl || undefined;
+}
 
 export default function SharedCartPage() {
   const cart = useCart();
   const { t } = useStoreLocale();
   const [payload, setPayload] = useState<SharedCartPayload | null>(null);
+  const [productLookup, setProductLookup] = useState<Record<string, any>>({});
   const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
@@ -22,10 +28,53 @@ export default function SharedCartPage() {
     setLoaded(true);
   }, []);
 
-  const itemsForCart = useMemo(() => payload ? sharedCartPayloadToItems(payload) : [], [payload]);
+  useEffect(() => {
+    if (!payload?.items.length) {
+      setProductLookup({});
+      return;
+    }
+
+    let cancelled = false;
+    const slugs = Array.from(new Set(payload.items.map((item) => item.slug || item.productId).filter(Boolean)));
+    if (!slugs.length) return;
+
+    productApi.batch(slugs)
+      .then(({ data }) => {
+        if (cancelled) return;
+        const products = Array.isArray(data) ? data : Array.isArray((data as any)?.products) ? (data as any).products : [];
+        const nextLookup: Record<string, any> = {};
+        products.forEach((product: any) => {
+          if (product?.slug) nextLookup[product.slug] = product;
+          if (product?.id) nextLookup[product.id] = product;
+        });
+        setProductLookup(nextLookup);
+      })
+      .catch(() => {
+        if (!cancelled) setProductLookup({});
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [payload]);
+
+  const displayItems = useMemo(() => {
+    if (!payload) return [];
+    return payload.items.map((item) => {
+      const product = productLookup[item.slug] || productLookup[item.productId];
+      const image = item.image || productImage(product);
+      return image ? { ...item, image } : item;
+    });
+  }, [payload, productLookup]);
+
+  const hydratedPayload = useMemo(
+    () => payload ? { ...payload, items: displayItems } : null,
+    [displayItems, payload],
+  );
+  const itemsForCart = useMemo(() => hydratedPayload ? sharedCartPayloadToItems(hydratedPayload) : [], [hydratedPayload]);
   const subtotal = useMemo(
-    () => payload?.items.reduce((sum, item) => sum + item.unitPrice * item.quantity, 0) ?? 0,
-    [payload],
+    () => displayItems.reduce((sum, item) => sum + item.unitPrice * item.quantity, 0),
+    [displayItems],
   );
   const currentUrl = typeof window === 'undefined' ? '' : window.location.href;
   const orderUrl = payload
@@ -35,7 +84,6 @@ export default function SharedCartPage() {
   const addSharedCart = () => {
     if (!itemsForCart.length) return;
     cart.addSnapshotItems(itemsForCart);
-    toast.success(t('cart.sharedAdded'));
   };
 
   if (!loaded) {
@@ -68,11 +116,11 @@ export default function SharedCartPage() {
 
       <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_360px]">
         <section className="space-y-3">
-          {payload.items.map((item) => (
+          {displayItems.map((item) => (
             <article key={`${item.productId}-${item.variantName || 'base'}`} className="grid gap-4 border border-white/10 bg-white/[.03] p-4 sm:grid-cols-[96px_minmax(0,1fr)_auto]">
               <Link href={`/producto?slug=${encodeURIComponent(item.slug)}`} className="relative block aspect-square overflow-hidden bg-white/[.04]">
                 {item.image ? (
-                  <Image src={item.image} alt={item.name} fill sizes="96px" className="object-cover" />
+                  <img src={item.image} alt={item.name} className="h-full w-full object-cover" loading="lazy" />
                 ) : (
                   <span className="flex h-full w-full items-center justify-center text-white/15">
                     <ShoppingBag className="h-8 w-8" />
@@ -104,7 +152,7 @@ export default function SharedCartPage() {
           <div className="mb-5 space-y-3 border-b border-white/10 pb-5">
             <div className="flex items-center justify-between text-sm text-white/55">
               <span>{t('common.items')}</span>
-              <span>{payload.items.reduce((sum, item) => sum + item.quantity, 0)}</span>
+              <span>{displayItems.reduce((sum, item) => sum + item.quantity, 0)}</span>
             </div>
             <div className="flex items-center justify-between text-xl font-700 text-white">
               <span>{t('cart.total')}</span>

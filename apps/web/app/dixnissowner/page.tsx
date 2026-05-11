@@ -18,10 +18,10 @@ const money=(v:number,c='RD$')=>`${c} ${Number(v||0).toLocaleString('es-DO',{min
 const USD_EXCHANGE_RATE=48;
 const rdToUsd=(price:number)=>Number((Number(price||0)/USD_EXCHANGE_RATE).toFixed(2));
 const discountTypes=[{value:'NONE',label:'Sin descuento'},{value:'PERCENT',label:'Porcentaje %'},{value:'FIXED_AMOUNT',label:'Monto fijo RD$'},{value:'FIXED_PRICE',label:'Precio final RD$'}];
-const saleChannels=[{value:'WHATSAPP',label:'WhatsApp'},{value:'FISICO',label:'Fisico'},{value:'TRANSFERENCIA',label:'Transferencia'},{value:'INSTAGRAM',label:'Instagram'},{value:'OTRO',label:'Otro'}];
+const saleChannels=[{value:'WHATSAPP',label:'WhatsApp'},{value:'FISICO',label:'Fisico'},{value:'INSTAGRAM',label:'Instagram'},{value:'OTRO',label:'Otro'}];
 const dateInputValue=(value:any)=>{if(!value)return '';const date=new Date(value);return Number.isNaN(date.getTime())?'':date.toISOString().slice(0,16)};
 const discountPreview=(item:any)=>{const price=Number(item.price||0);const value=Number(item.discountValue||0);if(!item.discountActive||item.discountType==='NONE'||!price||!value)return {salePrice:price,percent:0,save:0};let salePrice=price;if(item.discountType==='PERCENT')salePrice=price*(1-Math.min(value,100)/100);if(item.discountType==='FIXED_AMOUNT')salePrice=price-value;if(item.discountType==='FIXED_PRICE')salePrice=value;salePrice=Math.max(0,Math.min(price,Number(salePrice.toFixed(2))));const save=Number((price-salePrice).toFixed(2));return {salePrice,save,percent:price?Math.round((save/price)*100):0}};
-const variantLabel=(variant:any)=>{const explicit=String(variant?.name||'').trim();const parts=[variant?.color,variant?.size,variant?.model,variant?.lens].map(value=>String(value||'').trim()).filter(Boolean);return explicit||parts.join(' / ')||'Variante';};
+const variantLabel=(variant:any)=>{const explicit=String(variant?.name||'').trim();const parts=[variant?.color,variant?.size,variant?.model,variant?.lens].map(value=>String(value||'').trim()).filter(Boolean);return explicit||parts.join(' / ')||'Opcion';};
 const availableStockFor=(product:any)=>Array.isArray(product?.variants)&&product.variants.some((variant:any)=>variant.active)?product.variants.filter((variant:any)=>variant.active).reduce((sum:number,variant:any)=>sum+Number(variant.stock||0),0):Number(product?.availableStock??product?.stock??0);
 const readFile=(file:File)=>new Promise<string>((resolve,reject)=>{
   const raw=()=>{const r=new FileReader();r.onerror=()=>reject(r.error);r.onload=()=>resolve(String(r.result||''));r.readAsDataURL(file);};
@@ -143,7 +143,7 @@ function InventoryTab(){
   const selectedProduct=products.find((p:any)=>p.id===(f.productId||products[0]?.id));
   const variants=Array.isArray(selectedProduct?.variants)?selectedProduct.variants.filter((variant:any)=>variant.active):[];
   const adjust=useMutation({mutationFn:()=>api('/admin/inventory/adjust',{method:'POST',body:JSON.stringify({...f,productId:f.productId||products[0]?.id,variantId:f.variantId||undefined})}),onSuccess:()=>{qc.invalidateQueries({queryKey:['admin-products-inventory']});qc.invalidateQueries({queryKey:['admin-inventory-movements']});qc.invalidateQueries({queryKey:['admin-products']});toast.success('Inventario ajustado');setF({productId:'',variantId:'',quantity:0,reason:'Ajuste manual'})},onError:(e:any)=>toast.error(e.message)});
-  return <div className="space-y-6"><Toolbar title="Inventario" subtitle="Ajusta stock por producto o por variante y revisa todos los movimientos auditados."/><Panel title="Ajuste manual"><div className="grid gap-4 md:grid-cols-5"><Field label="Producto"><AdminSelect value={f.productId||products[0]?.id||''} onChange={value=>setF({...f,productId:value,variantId:''})} options={products.map((p:any)=>({value:p.id,label:`${p.name} · disponible ${availableStockFor(p)}`}))}/></Field><Field label="Variante"><AdminSelect value={f.variantId||''} onChange={value=>setF({...f,variantId:value})} options={variants.length?[{value:'',label:'Stock general'},...variants.map((variant:any)=>({value:variant.id,label:`${variantLabel(variant)} · stock ${variant.stock}`}))]:[{value:'',label:'Stock general'}]}/></Field><Field label="Cantidad (+/-)"><input type="number" className="input-dark" value={f.quantity} onChange={e=>setF({...f,quantity:Number(e.target.value)})}/></Field><Field label="Motivo"><input className="input-dark" value={f.reason} onChange={e=>setF({...f,reason:e.target.value})}/></Field><button className="btn-ember justify-center self-end" onClick={()=>adjust.mutate()} disabled={!products.length||!Number(f.quantity)}>Guardar ajuste</button></div></Panel><Panel title="Movimientos recientes">{movements.map((m:any)=><div key={m.id} className="mb-3 flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-black/30 p-4"><div><b>{m.product?.name||m.productName}</b><p className="text-sm text-white/45">{m.variant?variantLabel(m.variant):'Stock general'} · {m.type} · {m.reason||'Sin motivo'} · {new Date(m.createdAt).toLocaleString('es-DO')}</p></div><b className={m.quantity>0?'text-green-300':'text-red-300'}>{m.quantity>0?'+':''}{m.quantity}</b></div>)}{!movements.length&&<Empty text="Aun no hay movimientos de inventario."/>}</Panel></div>
+  return <div className="space-y-6"><Toolbar title="Inventario" subtitle="Ajusta stock por producto u opcion y revisa todos los movimientos auditados."/><Panel title="Ajuste manual"><div className="grid gap-4 md:grid-cols-5"><Field label="Producto"><AdminSelect value={f.productId||products[0]?.id||''} onChange={value=>setF({...f,productId:value,variantId:''})} options={products.map((p:any)=>({value:p.id,label:`${p.name} · disponible ${availableStockFor(p)}`}))}/></Field><Field label="Opcion del producto"><AdminSelect value={f.variantId||''} onChange={value=>setF({...f,variantId:value})} options={variants.length?[{value:'',label:'Stock general'},...variants.map((variant:any)=>({value:variant.id,label:`${variantLabel(variant)} · stock ${variant.stock}`}))]:[{value:'',label:'Stock general'}]}/></Field><Field label="Cantidad (+/-)"><input type="number" className="input-dark" value={f.quantity} onChange={e=>setF({...f,quantity:Number(e.target.value)})}/></Field><Field label="Motivo"><input className="input-dark" value={f.reason} onChange={e=>setF({...f,reason:e.target.value})}/></Field><button className="btn-ember justify-center self-end" onClick={()=>adjust.mutate()} disabled={!products.length||!Number(f.quantity)}>Guardar ajuste</button></div></Panel><Panel title="Movimientos recientes">{movements.map((m:any)=><div key={m.id} className="mb-3 flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-black/30 p-4"><div><b>{m.product?.name||m.productName}</b><p className="text-sm text-white/45">{m.variant?variantLabel(m.variant):'Stock general'} · {m.type} · {m.reason||'Sin motivo'} · {new Date(m.createdAt).toLocaleString('es-DO')}</p></div><b className={m.quantity>0?'text-green-300':'text-red-300'}>{m.quantity>0?'+':''}{m.quantity}</b></div>)}{!movements.length&&<Empty text="Aun no hay movimientos de inventario."/>}</Panel></div>
 }
 function OrderTimeline({events=[]}:{events:any[]}){return <div className="mt-4 rounded-2xl border border-white/10 bg-black/25 p-4"><p className="mb-3 text-xs font-bold uppercase tracking-[.16em] text-white/45">Historial del pedido</p>{events.length?events.map(event=><div key={event.id} className="relative border-l border-orange-400/30 pb-4 pl-4 last:pb-0"><span className="absolute -left-[5px] top-1 h-2.5 w-2.5 rounded-full bg-orange-400"/><b className="text-sm">{event.title}</b><p className="text-xs text-white/45">{event.body||event.type} · {event.actor?.name||'Sistema'} · {new Date(event.createdAt).toLocaleString('es-DO')}</p></div>):<p className="text-sm text-white/45">Aún no hay movimientos registrados.</p>}</div>}
 
@@ -174,7 +174,7 @@ function OrdersTabFull(){
 }
 
 function SalesDashboardTab(){const {data,isLoading}=useQuery({queryKey:['admin-sales-dashboard'],queryFn:()=>api<any>('/admin/reports')});if(isLoading||!data)return <p className="text-white/45">Cargando ventas...</p>;const max=Math.max(...(data.dailySales||[]).map((d:any)=>d.revenue),1);return <div className="space-y-6"><Toolbar title="Dashboard de ventas" subtitle="Ingresos, utilidad estimada, estados, productos, categorías y tendencia de 30 días."/><div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5"><Stat title="Ingresos" value={money(data.summary?.revenue||0)} detail={`${data.summary?.completedOrders||0} pedidos válidos`}/><Stat title="30 días" value={money(data.summary?.revenue30||0)} detail={`${data.summary?.orders30||0} pedidos recientes`}/><Stat title="Ticket promedio" value={money(data.summary?.averageOrder||0)} detail="Promedio por pedido"/><Stat title="Utilidad" value={money(data.summary?.profit||0)} detail={`${data.summary?.margin||0}% margen estimado`}/><Stat title="Cancelación" value={`${data.summary?.cancellationRate||0}%`} detail="Pedidos cancelados"/></div><div className="grid gap-6 xl:grid-cols-[1.3fr_.7fr]"><Panel title="Ventas diarias">{(data.dailySales||[]).map((d:any)=><div key={d.date} className="mb-3 grid grid-cols-[90px_1fr_110px] items-center gap-3 text-sm"><span className="text-white/45">{d.date.slice(5)}</span><div className="h-3 overflow-hidden rounded-full bg-white/10"><div className="h-full rounded-full bg-orange-500" style={{width:`${Math.max(3,(d.revenue/max)*100)}%`}}/></div><b className="text-right">{money(d.revenue)}</b></div>)}</Panel><Panel title="Moneda">{Object.entries(data.currencyTotals||{}).map(([k,v]:any)=><div key={k} className="mb-3 flex justify-between rounded-2xl bg-black/30 px-4 py-3"><span>{k}</span><b>{money(v,k==='USD'?'US$':'RD$')}</b></div>)}{!Object.keys(data.currencyTotals||{}).length&&<Empty text="Aún no hay ventas por moneda."/>}</Panel></div><div className="grid gap-6 xl:grid-cols-2"><Panel title="Productos más vendidos">{data.topProducts?.map((p:any)=><div key={p.id} className="mb-2 flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-black/30 px-4 py-3"><span>{p.name}<small className="ml-2 text-white/35">{p.category}</small></span><b>{p.quantity} uds · {money(p.revenue)}</b></div>)}{!data.topProducts?.length&&<Empty text="Aún no hay ventas para ordenar productos."/>}</Panel><Panel title="Ventas por categoría">{data.categorySales?.map((c:any)=><div key={c.name} className="mb-2 flex justify-between rounded-2xl bg-black/30 px-4 py-3"><span>{c.name}</span><b>{c.quantity} uds · {money(c.revenue)}</b></div>)}{!data.categorySales?.length&&<Empty text="Aún no hay ventas por categoría."/>}</Panel><Panel title="Pedidos por estado">{Object.entries(data.statusCounts||{}).map(([k,v]:any)=><div key={k} className="mb-2 flex justify-between rounded-2xl bg-black/30 px-4 py-3"><span>{statusLabels[k]||k}</span><b>{v}</b></div>)}</Panel><Panel title="Alertas de inventario">{data.lowStock?.map((p:any)=><div key={p.id} className="mb-2 flex justify-between rounded-2xl bg-black/30 px-4 py-3"><span>{p.name}</span><b className="text-orange-200">{p.stock} disponibles</b></div>)}{!data.lowStock?.length&&<Empty text="No hay productos con stock bajo."/>}</Panel></div></div>}
-function ManualSaleForm({products,onSaved}:{products:any[];onSaved?:()=>void}){
+function ManualSaleFormLegacy({products,onSaved}:{products:any[];onSaved?:()=>void}){
   const qc=useQueryClient();
   const productById=useMemo(()=>new Map((products||[]).map((product:any)=>[product.id,product])),[products]);
   const [channel,setChannel]=useState('WHATSAPP');
@@ -236,8 +236,8 @@ function ManualSaleForm({products,onSaved}:{products:any[];onSaved?:()=>void}){
               <Field label="Producto">
                 <AdminSelect value={item.productId} onChange={value=>{const product=productById.get(value);updateItem(index,{productId:value,variantId:'',unitPrice:product?.salePrice??product?.price??0});}} options={[{value:'',label:'Selecciona un producto'},...products.map((product:any)=>({value:product.id,label:product.name+' · stock '+availableStockFor(product)}))]}/>
               </Field>
-              <Field label="Variante">
-                <AdminSelect value={item.variantId||''} onChange={value=>{const nextVariant=variants.find((v:any)=>v.id===value);updateItem(index,{variantId:value,unitPrice:nextVariant?.price||selected?.salePrice||selected?.price||0});}} options={variants.length?[{value:'',label:'Selecciona variante'},...variants.map((variant:any)=>({value:variant.id,label:variantLabel(variant)+' · stock '+variant.stock}))]:[{value:'',label:'Sin variantes'}]}/>
+              <Field label="Opcion del producto">
+                <AdminSelect value={item.variantId||''} onChange={value=>{const nextVariant=variants.find((v:any)=>v.id===value);updateItem(index,{variantId:value,unitPrice:nextVariant?.price||selected?.salePrice||selected?.price||0});}} options={variants.length?[{value:'',label:'Selecciona opcion'},...variants.map((variant:any)=>({value:variant.id,label:variantLabel(variant)+' · stock '+variant.stock}))]:[{value:'',label:'Sin opciones'}]}/>
               </Field>
               <Field label="Cantidad">
                 <input type="number" min={1} max={maxStock||999} className="input-dark" value={item.quantity} onChange={e=>updateItem(index,{quantity:Number(e.target.value)})}/>
@@ -248,7 +248,7 @@ function ManualSaleForm({products,onSaved}:{products:any[];onSaved?:()=>void}){
               <button type="button" className="mt-7 grid h-11 w-11 place-items-center rounded-2xl border border-red-400/20 bg-red-500/10 text-red-200 transition hover:bg-red-500/20" onClick={()=>removeItem(index)} disabled={items.length===1}><Trash2 size={16}/></button>
             </div>
             <div className="mt-3 flex flex-wrap items-center justify-between gap-3 text-sm text-white/45">
-              <span>{selected?.categoryName||selected?.category?.name||'Sin categoria'} · {variants.length?`variante: ${variant?variantLabel(variant):'pendiente'}`:'stock general'} · disponibles {maxStock??0}</span>
+              <span>{selected?.categoryName||selected?.category?.name||'Sin categoria'} · {variants.length?`opcion: ${variant?variantLabel(variant):'pendiente'}`:'stock general'} · disponibles {maxStock??0}</span>
               <b className="text-white">{money(Number(item.quantity||0)*Number(item.unitPrice||0))}</b>
             </div>
           </div>;
@@ -261,6 +261,149 @@ function ManualSaleForm({products,onSaved}:{products:any[];onSaved?:()=>void}){
     </div>
   </Panel>;
 }
+function ManualSaleForm({products,onSaved}:{products:any[];onSaved?:()=>void}){
+  const qc=useQueryClient();
+  const productById=useMemo(()=>new Map((products||[]).map((product:any)=>[product.id,product])),[products]);
+  const visibleProducts=useMemo(()=>products.filter((product:any)=>product.status!=='SOLD_OUT'),[products]);
+  const [open,setOpen]=useState(true);
+  const [channel,setChannel]=useState('WHATSAPP');
+  const [paidByTransfer,setPaidByTransfer]=useState(false);
+  const [paymentStatus,setPaymentStatus]=useState<'PENDING'|'PARTIAL'|'PAID'>('PENDING');
+  const [paidAmount,setPaidAmount]=useState(0);
+  const [customerName,setCustomerName]=useState('');
+  const [reference,setReference]=useState('');
+  const [note,setNote]=useState('');
+  const blankSaleItem=()=>({productId:'',variantId:'',quantity:1,unitPrice:0});
+  const [items,setItems]=useState<any[]>(()=>[blankSaleItem()]);
+  useEffect(()=>{if(!items.length)setItems([blankSaleItem()]);},[items.length]);
+  const updateItem=(index:number,patch:any)=>setItems(current=>current.map((item,i)=>i===index?{...item,...patch}:item));
+  const addItem=()=>setItems(current=>[...current,blankSaleItem()]);
+  const removeItem=(index:number)=>setItems(current=>current.length>1?current.filter((_,i)=>i!==index):current);
+  const productVariants=(product:any)=>Array.isArray(product?.variants)?product.variants.filter((variant:any)=>variant.active):[];
+  const needsVariant=(item:any)=>productVariants(productById.get(item.productId)).length>0;
+  const selectedVariant=(item:any)=>productVariants(productById.get(item.productId)).find((variant:any)=>variant.id===item.variantId);
+  const productImage=(product:any)=>product?.images?.[0]?.url||product?.mainImage||product?.imageUrl||'';
+  const total=items.reduce((sum,item)=>sum+(Number(item.quantity||0)*Number(item.unitPrice||0)),0);
+  const paidValue=paymentStatus==='PAID'?total:paymentStatus==='PARTIAL'?Math.min(total,Math.max(0,Number(paidAmount||0))):0;
+  const balance=Math.max(0,total-paidValue);
+  const hasInvalidPayment=paymentStatus==='PARTIAL'&&(paidValue<=0||paidValue>=total);
+  const paymentStatusLabel={PENDING:'Pendiente',PARTIAL:'Pago parcial',PAID:'Pagado completo'}[paymentStatus];
+  const paymentHint=paymentStatus==='PAID'?'Se registra como confirmada y descuenta inventario.':paymentStatus==='PARTIAL'?'Queda pendiente de confirmar el saldo antes de descontar inventario.':'Queda pendiente hasta confirmar el pago.';
+  useEffect(()=>{if(paymentStatus!=='PARTIAL')setPaidAmount(0);},[paymentStatus]);
+  const save=useMutation({
+    mutationFn:()=>api('/admin/sales/manual',{method:'POST',body:JSON.stringify({
+      channel,
+      customerName:customerName||null,
+      reference:reference||null,
+      note:note||null,
+      currency:'DOP',
+      paidByTransfer,
+      paymentStatus,
+      paidAmount:paymentStatus==='PARTIAL'?paidValue:0,
+      items:items.filter(item=>item.productId).map(item=>({productId:item.productId,variantId:item.variantId||undefined,quantity:Number(item.quantity||1),unitPrice:Number(item.unitPrice||0)})),
+    })}),
+    onSuccess:()=>{
+      qc.invalidateQueries({queryKey:['admin-sales-dashboard']});
+      qc.invalidateQueries({queryKey:['admin-products-for-sale']});
+      qc.invalidateQueries({queryKey:['admin-products']});
+      qc.invalidateQueries({queryKey:['admin-dashboard']});
+      qc.invalidateQueries({queryKey:['admin-inventory-movements']});
+      toast.success(paymentStatus==='PAID'?'Venta registrada e inventario actualizado':'Venta registrada como pendiente de confirmacion');
+      setCustomerName('');
+      setReference('');
+      setNote('');
+      setPaidByTransfer(false);
+      setPaymentStatus('PENDING');
+      setPaidAmount(0);
+      setItems([blankSaleItem()]);
+      onSaved?.();
+    },
+    onError:(e:any)=>toast.error(e.message||'No se pudo registrar la venta'),
+  });
+  const hasInvalidItem=items.some(item=>!item.productId||Number(item.quantity||0)<1||(needsVariant(item)&&!item.variantId));
+  return <Panel title="Registrar venta manual" action={<div className="flex flex-wrap items-center gap-2"><span className="rounded-full border border-orange-400/25 bg-orange-500/10 px-4 py-2 text-sm font-bold text-orange-100">{money(total)}</span><button type="button" className="btn-ghost rounded-full px-4 py-2 text-xs" onClick={()=>setOpen(!open)}><ChevronDown size={15} className={open?'rotate-180 transition':'transition'}/>{open?'Minimizar':'Abrir'}</button></div>}>
+    {!open?<div className="rounded-3xl border border-orange-400/15 bg-orange-500/10 p-5 text-sm text-orange-50">Formulario minimizado. Total preparado: <b>{money(total)}</b>. Abre esta seccion cuando quieras registrar una venta nueva.</div>:<div className="grid gap-5 xl:grid-cols-[.82fr_1.18fr]">
+      <div className="space-y-4">
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-1">
+          <Field label="Tipo de venta">
+            <AdminSelect value={channel} onChange={setChannel} options={saleChannels.map(option=>({value:option.value,label:option.label}))}/>
+          </Field>
+          <label className="flex items-start gap-3 rounded-2xl border border-white/10 bg-black/25 p-4 text-sm transition hover:border-orange-400/35">
+            <input type="checkbox" checked={paidByTransfer} onChange={e=>setPaidByTransfer(e.target.checked)} className="mt-1"/>
+            <span><b className="block">Pago por transferencia</b><small className="text-white/45">Activalo solo si la venta fue pagada o abonada por transferencia.</small></span>
+          </label>
+          <Field label="Estado del pago" hint={paymentHint}>
+            <AdminSelect value={paymentStatus} onChange={value=>setPaymentStatus(value as any)} options={[{value:'PENDING',label:'Pendiente de pago'},{value:'PARTIAL',label:'Pago parcial / abono'},{value:'PAID',label:'Pagado completo'}]}/>
+          </Field>
+          {paymentStatus==='PARTIAL'&&<Field label="Monto pagado RD$" hint={`Pendiente actual: ${money(balance)}`}>
+            <input type="number" min={0} max={total} step="0.01" className="input-dark" value={paidAmount} onChange={e=>setPaidAmount(Number(e.target.value))}/>
+          </Field>}
+          <div className="grid grid-cols-2 gap-3">
+            <div className="rounded-2xl border border-white/10 bg-black/30 p-4"><p className="text-xs text-white/40">Pagado</p><b className="text-xl">{money(paidValue)}</b></div>
+            <div className="rounded-2xl border border-white/10 bg-black/30 p-4"><p className="text-xs text-white/40">Pendiente</p><b className="text-xl">{money(balance)}</b></div>
+          </div>
+          <Field label="Cliente / referencia visible">
+            <input className="input-dark" value={customerName} onChange={e=>setCustomerName(e.target.value)} placeholder="Ej: Maria, tienda fisica, pedido IG"/>
+          </Field>
+          <Field label="Numero de recibo o comprobante">
+            <input className="input-dark" value={reference} onChange={e=>setReference(e.target.value)} placeholder="Transferencia, recibo o nota corta"/>
+          </Field>
+          <Field label="Nota interna">
+            <textarea className="input-dark min-h-[104px]" value={note} onChange={e=>setNote(e.target.value)} placeholder="Detalle opcional para recordar esta venta"/>
+          </Field>
+        </div>
+      </div>
+      <div className="space-y-4">
+        {items.map((item,index)=>{
+          const selected=productById.get(item.productId);
+          const variants=productVariants(selected);
+          const variant=selectedVariant(item);
+          const maxStock=variant?variant.stock:availableStockFor(selected);
+          return <div key={index} className="rounded-[1.4rem] border border-white/10 bg-black/25 p-4">
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+              <div><b>Producto {index+1}</b><p className="text-xs text-white/45">{selected?selected.name:'Selecciona desde la lista visual'}</p></div>
+              <button type="button" className="grid h-10 w-10 place-items-center rounded-2xl border border-red-400/20 bg-red-500/10 text-red-200 transition hover:bg-red-500/20 disabled:opacity-35" onClick={()=>removeItem(index)} disabled={items.length===1}><Trash2 size={16}/></button>
+            </div>
+            <div className="grid max-h-[360px] gap-3 overflow-auto pr-1 md:grid-cols-2">
+              {visibleProducts.map((product:any)=>{
+                const stock=availableStockFor(product);
+                const selectedProduct=item.productId===product.id;
+                return <button key={product.id} type="button" onClick={()=>updateItem(index,{productId:product.id,variantId:'',unitPrice:product.salePrice??product.price??0})} className={`flex items-center gap-3 rounded-2xl border p-3 text-left transition hover:-translate-y-0.5 hover:border-orange-400/45 ${selectedProduct?'border-orange-400 bg-orange-500/15':'border-white/10 bg-black/30'}`}>
+                  {productImage(product)?<img src={productImage(product)} alt={product.name} className="h-16 w-16 rounded-2xl object-cover"/>:<span className="grid h-16 w-16 place-items-center rounded-2xl bg-white/10 text-xs text-white/35">Sin foto</span>}
+                  <span className="min-w-0 flex-1">
+                    <b className="block truncate text-sm">{product.name}</b>
+                    <small className="block text-white/45">{money(product.salePrice??product.price)} · stock {stock}</small>
+                  </span>
+                  {selectedProduct?<Check size={18} className="text-orange-300"/>:Number(stock)<=Number(product.lowStockThreshold??5)&&<span className="rounded-full bg-orange-500/15 px-2 py-1 text-[10px] font-bold text-orange-100">Bajo</span>}
+                </button>;
+              })}
+            </div>
+            <div className="mt-4 grid gap-3 md:grid-cols-[1fr_100px_132px]">
+              <Field label="Opcion del producto">
+                <AdminSelect value={item.variantId||''} onChange={value=>{const nextVariant=variants.find((v:any)=>v.id===value);updateItem(index,{variantId:value,unitPrice:nextVariant?.price??selected?.salePrice??selected?.price??0});}} options={variants.length?[{value:'',label:'Selecciona opcion'},...variants.map((variant:any)=>({value:variant.id,label:variantLabel(variant)+' · stock '+variant.stock}))]:[{value:'',label:'Sin opciones'}]}/>
+              </Field>
+              <Field label="Cantidad">
+                <input type="number" min={1} max={maxStock||999} className="input-dark" value={item.quantity} onChange={e=>updateItem(index,{quantity:Number(e.target.value)})}/>
+              </Field>
+              <Field label="Precio RD$">
+                <input type="number" min={0} step="0.01" className="input-dark" value={item.unitPrice} onChange={e=>updateItem(index,{unitPrice:Number(e.target.value)})}/>
+              </Field>
+            </div>
+            <div className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-white/[.03] px-4 py-3 text-sm text-white/45">
+              <span>{selected?.categoryName||selected?.category?.name||'Sin categoria'} · {variants.length?`opcion: ${variant?variantLabel(variant):'pendiente'}`:'stock general'} · disponibles {maxStock??0}</span>
+              <b className="text-white">{money(Number(item.quantity||0)*Number(item.unitPrice||0))}</b>
+            </div>
+          </div>;
+        })}
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-[1.4rem] border border-orange-400/20 bg-orange-500/10 p-4">
+          <div><b>{paymentStatusLabel}</b><p className="text-sm text-white/45">Total {money(total)} · pagado {money(paidValue)} · pendiente {money(balance)}</p></div>
+          <div className="flex flex-wrap gap-2"><button type="button" className="btn-ghost" onClick={addItem}><Plus size={16}/> Agregar producto</button><button type="button" className="btn-ember" onClick={()=>save.mutate()} disabled={save.isPending||!items.length||hasInvalidItem||hasInvalidPayment}><ShoppingBag size={16}/> Registrar venta</button></div>
+        </div>
+      </div>
+    </div>}
+  </Panel>;
+}
+
 function SalesDashboardTabV2(){
   const today=new Date().toISOString().slice(0,10);
   const [month,setMonth]=useState(today.slice(0,7));
@@ -352,7 +495,7 @@ function SalesDashboardTabV2(){
   </div>;
 }
 
-function SalesTab(){
+function SalesTabLegacy(){
   const {data:products=[]}=useQuery({queryKey:['admin-products-for-sale'],queryFn:()=>api<any[]>('/admin/products')});
   const lowStock=products.filter((product:any)=>Number(product.stock||0)<=Number(product.lowStockThreshold??5));
   const activeProducts=products.filter((product:any)=>product.status!=='SOLD_OUT');
@@ -380,6 +523,140 @@ function SalesTab(){
   </div>;
 }
 
+
+function SalesTab(){
+  const qc=useQueryClient();
+  const today=new Date().toISOString().slice(0,10);
+  const [month,setMonth]=useState(today.slice(0,7));
+  const {data:products=[]}=useQuery({queryKey:['admin-products-for-sale'],queryFn:()=>api<any[]>('/admin/products')});
+  const {data:salesData,isLoading}=useQuery({queryKey:['admin-sales-dashboard',month,'manual'],queryFn:()=>api<any>(`/admin/reports?month=${encodeURIComponent(month)}`)});
+  const lowStock=products.filter((product:any)=>Number(availableStockFor(product)||0)<=Number(product.lowStockThreshold??5));
+  const activeProducts=products.filter((product:any)=>product.status!=='SOLD_OUT');
+  const manualOrders=salesData?.manualOrders||[];
+  const [chartYear,chartMonthNumber]=month.split('-').map(Number);
+  const chartDayLimit=month===today.slice(0,7)?Number(today.slice(8,10)):new Date(chartYear,chartMonthNumber,0).getDate();
+  const chartDays=Array.from({length:chartDayLimit},(_,index)=>{
+    const date=`${month}-${String(index+1).padStart(2,'0')}`;
+    const dayOrders=manualOrders.filter((order:any)=>String(order.date||order.createdAt||'').slice(0,10)===date);
+    return {
+      date,
+      orders:dayOrders.length,
+      revenue:dayOrders.reduce((sum:number,order:any)=>sum+Number(order.total||0),0),
+      paid:dayOrders.reduce((sum:number,order:any)=>sum+Number(order.paidAmount||0),0),
+    };
+  });
+  const summary=salesData?.manualSummary||{};
+  const paymentCounts=salesData?.manualPaymentCounts||{};
+  const highestDailySales=Math.max(...chartDays.map((day:any)=>Number(day.orders||0)),0);
+  const chartMax=Math.max(4,highestDailySales+2);
+  const chartTicks=chartMax<=10?Array.from({length:chartMax+1},(_,index)=>chartMax-index):[chartMax,Math.ceil(chartMax*.75),Math.ceil(chartMax*.5),Math.ceil(chartMax*.25),0];
+  const paymentStatusLabels:any={PENDING:'Pendiente',PARTIAL:'Parcial',PAID:'Pagado',CONFIRMED:'Confirmado',CANCELLED:'Cancelado'};
+  const refreshSales=()=>{qc.invalidateQueries({queryKey:['admin-sales-dashboard']});qc.invalidateQueries({queryKey:['admin-products-for-sale']});};
+  const productImage=(product:any)=>product?.images?.[0]?.url||product?.mainImage||product?.imageUrl||'';
+  return <div className="space-y-6">
+    <Toolbar title="Ventas" subtitle="Registra ventas manuales con pago pendiente, parcial o completo. La transferencia se marca como metodo de pago, no como tipo de venta.">
+      <Field label="Mes">
+        <input type="month" className="input-dark min-w-[180px]" value={month} onChange={e=>setMonth(e.target.value||today.slice(0,7))}/>
+      </Field>
+    </Toolbar>
+    <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+      <Stat title="Ventas registradas" value={summary.orders||0} detail="Solo ventas manuales"/>
+      <Stat title="Cobrado" value={money(summary.paid||0)} detail={`${paymentCounts.PAID||0} pagadas completo`}/>
+      <Stat title="Pendiente" value={money(summary.pending||0)} detail={`${(paymentCounts.PENDING||0)+(paymentCounts.PARTIAL||0)} por completar`}/>
+      <Stat title="Ganancia estimada" value={money(summary.profit||0)} detail={`${summary.margin||0}% margen`}/>
+    </div>
+    <ManualSaleForm products={products} onSaved={refreshSales}/>
+    <div className="grid gap-6 xl:grid-cols-[1.05fr_.95fr]">
+      <Panel title="Grafico de ventas del mes" action={<span className="rounded-full border border-white/10 bg-black/30 px-4 py-2 text-sm text-white/60">{isLoading?'Cargando...':`${manualOrders.length} ventas`}</span>}>
+        <div className="rounded-[1.35rem] border border-white/10 bg-black/25 p-4">
+          <div className="grid grid-cols-[58px_1fr] gap-3">
+            <div className="relative h-72 text-right text-[11px] text-white/35">
+              {chartTicks.map((tick,index)=><span key={index} className="absolute right-0 -translate-y-1/2" style={{top:`${((chartMax-Number(tick))/chartMax)*100}%`}}>{Math.round(Number(tick)).toLocaleString('es-DO')}</span>)}
+            </div>
+            <div className="overflow-hidden pb-2">
+              <div className="relative h-72 w-full">
+                <div className="absolute inset-0 flex flex-col justify-between">
+                  {chartTicks.map((tick,index)=><span key={index} className="absolute left-0 right-0 border-t border-white/10" style={{top:`${((chartMax-Number(tick))/chartMax)*100}%`}}/>)}
+                </div>
+                <div className="relative z-10 flex h-full items-end gap-2 px-2">
+                  {chartDays.map((day:any)=>{
+                    const revenue=Number(day.revenue||0);
+                    const salesCount=Number(day.orders||0);
+                    const paid=Number(day.paid||0);
+                    const pending=Math.max(0,revenue-paid);
+                    const height=salesCount?(salesCount/chartMax)*100:0;
+                    const paidHeight=revenue?Math.min(100,Math.max(0,(paid/revenue)*100)):0;
+                    const pendingHeight=revenue?Math.min(100-paidHeight,Math.max(0,(pending/revenue)*100)):0;
+                    return <div key={day.date} className="group grid h-full min-w-0 flex-1 grid-rows-[1fr_18px] items-end gap-2">
+                      <div className="relative flex h-full w-full items-end justify-center">
+                        {salesCount>0&&<span className="absolute -top-6 whitespace-nowrap rounded-full bg-white px-2 py-0.5 text-[10px] font-black text-black opacity-0 shadow-lg transition group-hover:opacity-100">{salesCount} venta{salesCount===1?'':'s'} · {money(revenue)}</span>}
+                        <div className="relative w-full max-w-[38px] overflow-hidden rounded-t-md bg-white/10 transition-colors group-hover:bg-white/15" style={{height:salesCount?`${height}%`:'3px'}}>
+                          {salesCount>0?<>
+                            <span className="absolute bottom-0 left-0 right-0 bg-emerald-400" style={{height:`${paidHeight}%`}}/>
+                            <span className="absolute left-0 right-0 bg-orange-500" style={{bottom:`${paidHeight}%`,height:`${pendingHeight}%`}}/>
+                          </>:<span className="absolute inset-0 bg-white/10"/>}
+                        </div>
+                      </div>
+                      <span className="text-[10px] font-bold text-white/40">{day.date.slice(8)}</span>
+                    </div>;
+                  })}
+                </div>
+              </div>
+            </div>
+          </div>
+          {!chartDays.length&&<Empty text="Aun no hay ventas para graficar este mes."/>}
+        </div>
+        <div className="mt-5 flex flex-wrap items-center justify-between gap-3 text-xs text-white/45">
+          <div className="flex flex-wrap gap-3"><span className="inline-flex items-center gap-2"><i className="h-3 w-6 rounded-full bg-emerald-400"/>Cobrado</span><span className="inline-flex items-center gap-2"><i className="h-3 w-6 rounded-full bg-orange-500"/>Pendiente</span></div>
+          <span>La altura mide cantidad de ventas; el color separa cobrado y pendiente.</span>
+        </div>
+      </Panel>
+      <Panel title="Estado de pagos">
+        <div className="grid gap-3 sm:grid-cols-3">
+          {['PENDING','PARTIAL','PAID'].map(status=><div key={status} className="rounded-2xl border border-white/10 bg-black/30 p-4"><p className="text-xs uppercase tracking-[.12em] text-white/40">{paymentStatusLabels[status]}</p><b className="mt-2 block text-2xl">{paymentCounts[status]||0}</b></div>)}
+        </div>
+        <div className="mt-4 rounded-2xl border border-orange-400/20 bg-orange-500/10 p-4 text-sm text-orange-50">
+          <b>Regla segura:</b> las ventas pendientes o parciales quedan registradas, pero el inventario solo se descuenta cuando confirmas la venta.
+        </div>
+      </Panel>
+    </div>
+    <Panel title="Ventas registradas" action={<span className="rounded-full bg-white/10 px-4 py-2 text-sm">{month}</span>}>
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[860px] border-separate border-spacing-y-2 text-left text-sm">
+          <thead className="text-xs uppercase tracking-[.12em] text-white/40">
+            <tr><th className="px-3 py-2">Fecha</th><th className="px-3 py-2">Cliente</th><th className="px-3 py-2">Productos</th><th className="px-3 py-2">Tipo</th><th className="px-3 py-2">Pago</th><th className="px-3 py-2 text-right">Pagado</th><th className="px-3 py-2 text-right">Pendiente</th><th className="px-3 py-2 text-right">Total</th></tr>
+          </thead>
+          <tbody>
+            {manualOrders.map((order:any)=><tr key={order.id} className="rounded-2xl bg-black/30">
+              <td className="rounded-l-2xl px-3 py-3 text-white/55">{new Date(order.createdAt).toLocaleDateString('es-DO')}</td>
+              <td className="px-3 py-3"><b>{order.customerName||order.user?.name||'Venta manual'}</b><p className="text-xs text-white/35">{order.paymentReference||order.id.slice(0,8)}</p></td>
+              <td className="max-w-[280px] px-3 py-3 text-white/65">{order.itemSummary||`${order.items?.length||0} productos`}</td>
+              <td className="px-3 py-3"><span className="rounded-full bg-white/10 px-3 py-1 text-xs">{order.salesChannelLabel||order.salesChannel}</span></td>
+              <td className="px-3 py-3"><span className={`rounded-full px-3 py-1 text-xs font-bold ${order.paymentStatus==='PAID'||order.paymentStatus==='CONFIRMED'?'bg-emerald-500/15 text-emerald-100':order.paymentStatus==='PARTIAL'?'bg-yellow-500/15 text-yellow-100':'bg-orange-500/15 text-orange-100'}`}>{paymentStatusLabels[order.paymentStatus]||order.paymentStatus}</span></td>
+              <td className="px-3 py-3 text-right">{money(order.paidAmount||0,order.currency==='USD'?'US$':'RD$')}</td>
+              <td className="px-3 py-3 text-right">{money(order.balance||0,order.currency==='USD'?'US$':'RD$')}</td>
+              <td className="rounded-r-2xl px-3 py-3 text-right font-black">{money(order.total||0,order.currency==='USD'?'US$':'RD$')}</td>
+            </tr>)}
+          </tbody>
+        </table>
+        {!manualOrders.length&&<Empty text="No hay ventas registradas en este mes."/>}
+      </div>
+    </Panel>
+    <Panel title="Inventario rapido">
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+        {products.slice(0,12).map((product:any)=><div key={product.id} className="flex items-center gap-3 rounded-2xl border border-white/10 bg-black/25 p-3">
+          {productImage(product)&&<img src={productImage(product)} alt={product.name} className="h-14 w-14 rounded-xl object-cover"/>}
+          <div className="min-w-0 flex-1">
+            <b className="block truncate text-sm">{product.name}</b>
+            <p className="text-xs text-white/40">{money(product.salePrice??product.price)} · stock {availableStockFor(product)}</p>
+          </div>
+          {Number(availableStockFor(product)||0)<=Number(product.lowStockThreshold??5)&&<span className="rounded-full bg-orange-500/15 px-2 py-1 text-[10px] font-bold text-orange-100">Bajo</span>}
+        </div>)}
+        {!products.length&&<Empty text="No hay productos cargados para vender."/>}
+      </div>
+    </Panel>
+  </div>;
+}
 
 function NotificationsTab(){
   const qc=useQueryClient();
@@ -413,6 +690,7 @@ function ProductsTabV2(){
   const blank={id:'',name:'',slug:'',description:'',price:0,priceUsd:0,cost:0,discountActive:false,discountType:'NONE',discountValue:0,discountLabel:'',discountStartsAt:'',discountEndsAt:'',stock:0,lowStockThreshold:5,imageUrl:'',images:[] as any[],status:'NEW',categoryId:'',variantMode:false,variantFields:{...defaultVariantFields},variants:[] as any[]};
   const [f,setF]=useState<any>(blank);
   const [productFormOpen,setProductFormOpen]=useState(true);
+  const productFormRef=useRef<HTMLDivElement|null>(null);
   const imageList=(item:any)=>{const list=Array.isArray(item?.images)?item.images:[];const normalized=[...list].filter((image:any)=>image?.url).sort((a:any,b:any)=>(a.sortOrder??0)-(b.sortOrder??0)).map((image:any,index:number)=>({url:image.url,alt:image.alt||item?.name||'',sortOrder:index}));if(!normalized.length&&item?.imageUrl)normalized.push({url:item.imageUrl,alt:item?.name||'',sortOrder:0});return normalized;};
   const syncImages=(item:any,next:any[])=>{const normalized=next.filter((image:any)=>image?.url).map((image:any,index:number)=>({url:image.url,alt:image.alt||item.name||'',sortOrder:index}));return {...item,images:normalized,imageUrl:normalized[0]?.url||''};};
   const currentImages=imageList(f);
@@ -422,16 +700,17 @@ function ProductsTabV2(){
   const removeImage=(index:number)=>updateImages(currentImages.filter((_:any,i:number)=>i!==index));
   const addFiles=async(files:FileList|null)=>{if(!files?.length)return;const uploaded=await Promise.all(Array.from(files).map(async(file,index)=>({url:await readFile(file),alt:f.name,sortOrder:currentImages.length+index})));updateImages([...currentImages,...uploaded]);};
   const setPrimaryUrl=(url:string)=>{const rest=currentImages.slice(1);setF((prev:any)=>syncImages({...prev,imageUrl:url},url?[{url,alt:prev.name,sortOrder:0},...rest]:rest));};
-  const normalizeFormVariants=(rows:any[],product:any)=>{const enabled={...defaultVariantFields,...(product?.variantFields||{})};return (Array.isArray(rows)?rows:[]).map((variant:any,index:number)=>{const price=Number(variant?.price||0);const prepared={...variant,color:enabled.color?variant?.color:'',size:enabled.size?variant?.size:'',model:enabled.model?variant?.model:'',lens:enabled.lens?variant?.lens:''};const name=String(prepared.name||'').trim()||variantLabel(prepared);return {id:String(prepared.id||'').trim()||undefined,name,sku:String(prepared.sku||'').trim(),color:String(prepared.color||'').trim(),size:String(prepared.size||'').trim(),model:String(prepared.model||'').trim(),lens:String(prepared.lens||'').trim(),price,priceUsd:price>0?rdToUsd(price):0,stock:Math.max(0,Math.floor(Number(prepared.stock||0))),imageUrl:String(prepared.imageUrl||'').trim(),active:prepared.active!==false,sortOrder:Number.isFinite(Number(prepared.sortOrder))?Number(prepared.sortOrder):index};}).filter((variant:any)=>variant.name!=='Variante'||variant.sku||variant.color||variant.size||variant.model||variant.lens||variant.imageUrl||variant.stock>0);};
-  const preparePayload=(payload:any)=>{const images=imageList(payload);const variantMode=Boolean(payload.variantMode);const variants=variantMode?normalizeFormVariants(payload.variants,payload):undefined;const {variants:_variants,variantMode:_variantMode,variantFields:_variantFields,category:_category,categoryName:_categoryName,discount:_discount,mainImage:_mainImage,orderItems:_orderItems,salePrice:_salePrice,salePriceUsd:_salePriceUsd,comparePrice:_comparePrice,comparePriceUsd:_comparePriceUsd,profit:_profit,margin:_margin,isOutOfStock:_isOutOfStock,isNew:_isNew,isBestSeller:_isBestSeller,isLimitedDrop:_isLimitedDrop,...base}=payload;return {...base,images,imageUrl:images[0]?.url||payload.imageUrl,priceUsd:rdToUsd(payload.price),categoryId:payload.categoryId||cats[0]?.id,id:undefined,...(variantMode?{variants}: {})};};
+  const normalizeFormVariants=(rows:any[],product:any)=>{const enabled={...defaultVariantFields,...(product?.variantFields||{})};return (Array.isArray(rows)?rows:[]).map((variant:any,index:number)=>{const price=Number(variant?.price||0);const prepared={...variant,color:enabled.color?variant?.color:'',size:enabled.size?variant?.size:'',model:enabled.model?variant?.model:'',lens:enabled.lens?variant?.lens:''};const name=String(prepared.name||'').trim()||variantLabel(prepared);return {id:String(prepared.id||'').trim()||undefined,name,sku:String(prepared.sku||'').trim(),color:String(prepared.color||'').trim(),size:String(prepared.size||'').trim(),model:String(prepared.model||'').trim(),lens:String(prepared.lens||'').trim(),price,priceUsd:price>0?rdToUsd(price):0,stock:Math.max(0,Math.floor(Number(prepared.stock||0))),imageUrl:String(prepared.imageUrl||'').trim(),active:prepared.active!==false,sortOrder:Number.isFinite(Number(prepared.sortOrder))?Number(prepared.sortOrder):index};}).filter((variant:any)=>variant.name!=='Opcion'||variant.sku||variant.color||variant.size||variant.model||variant.lens||variant.imageUrl||variant.stock>0);};
+  const preparePayload=(payload:any)=>{const images=imageList(payload);const variantMode=Boolean(payload.variantMode);const variants=variantMode?normalizeFormVariants(payload.variants,payload):[];const {variants:_variants,variantMode:_variantMode,variantFields:_variantFields,category:_category,categoryName:_categoryName,discount:_discount,mainImage:_mainImage,orderItems:_orderItems,salePrice:_salePrice,salePriceUsd:_salePriceUsd,comparePrice:_comparePrice,comparePriceUsd:_comparePriceUsd,profit:_profit,margin:_margin,isOutOfStock:_isOutOfStock,isNew:_isNew,isBestSeller:_isBestSeller,isLimitedDrop:_isLimitedDrop,...base}=payload;return {...base,images,imageUrl:images[0]?.url||payload.imageUrl,priceUsd:rdToUsd(payload.price),categoryId:payload.categoryId||cats[0]?.id,id:undefined,variants};};
   const save=useMutation({mutationFn:(payload:any)=>api(payload.id?'/admin/products/'+payload.id:'/admin/products',{method:payload.id?'PATCH':'POST',body:JSON.stringify(preparePayload(payload))}),onSuccess:()=>{qc.invalidateQueries({queryKey:['admin-products']});toast.success('Producto guardado');setF(blank)},onError:(e:any)=>toast.error(e.message)});
   const del=useMutation({mutationFn:(id:string)=>api('/admin/products/'+id,{method:'DELETE'}),onSuccess:()=>{qc.invalidateQueries({queryKey:['admin-products']});toast.success('Producto eliminado o marcado agotado')}});
   const blankVariant={id:'',name:'',sku:'',color:'',size:'',model:'',lens:'',price:0,priceUsd:0,stock:0,imageUrl:'',active:true,sortOrder:0};
   const blankVariantFor=(product:any)=>({...blankVariant,price:Number(product?.price||0),priceUsd:Number(product?.priceUsd||rdToUsd(product?.price||0))});
-  const hydrateProductForEdit=(product:any)=>{const variants=(Array.isArray(product?.variants)?product.variants:[]).map((variant:any,index:number)=>({...blankVariant,...variant,price:Number(variant.price||product.price||0),priceUsd:Number(variant.priceUsd||rdToUsd(variant.price||product.price||0)),stock:Number(variant.stock||0),sortOrder:Number.isFinite(Number(variant.sortOrder))?Number(variant.sortOrder):index,active:variant.active!==false}));const variantFields={color:variants.length?variants.some((variant:any)=>Boolean(variant.color)):true,size:variants.some((variant:any)=>Boolean(variant.size)),model:variants.some((variant:any)=>Boolean(variant.model)),lens:variants.some((variant:any)=>Boolean(variant.lens))};return syncImages({...product,priceUsd:rdToUsd(product.price),lowStockThreshold:product.lowStockThreshold??5,discountType:product.discountType||'NONE',discountValue:product.discountValue||0,discountLabel:product.discountLabel||'',discountStartsAt:dateInputValue(product.discountStartsAt),discountEndsAt:dateInputValue(product.discountEndsAt),variantMode:variants.length>0,variantFields,variants},imageList(product));};
+  const hydrateProductForEdit=(product:any)=>{const variants=(Array.isArray(product?.variants)?product.variants:[]).filter((variant:any)=>variant.active!==false).map((variant:any,index:number)=>({...blankVariant,...variant,price:Number(variant.price||product.price||0),priceUsd:Number(variant.priceUsd||rdToUsd(variant.price||product.price||0)),stock:Number(variant.stock||0),sortOrder:Number.isFinite(Number(variant.sortOrder))?Number(variant.sortOrder):index,active:variant.active!==false}));const variantFields={color:variants.length?variants.some((variant:any)=>Boolean(variant.color)):true,size:variants.some((variant:any)=>Boolean(variant.size)),model:variants.some((variant:any)=>Boolean(variant.model)),lens:variants.some((variant:any)=>Boolean(variant.lens))};return syncImages({...product,priceUsd:rdToUsd(product.price),lowStockThreshold:product.lowStockThreshold??5,discountType:product.discountType||'NONE',discountValue:product.discountValue||0,discountLabel:product.discountLabel||'',discountStartsAt:dateInputValue(product.discountStartsAt),discountEndsAt:dateInputValue(product.discountEndsAt),variantMode:variants.length>0,variantFields,variants},imageList(product));};
+  const editProduct=(product:any)=>{setProductFormOpen(true);setF(hydrateProductForEdit(product));window.setTimeout(()=>productFormRef.current?.scrollIntoView({behavior:'smooth',block:'start'}),40);};
   const [variantProduct,setVariantProduct]=useState<any|null>(null);
   const [variantForm,setVariantForm]=useState<any>(blankVariant);
-  const activeVariantProduct=variantProduct?data.find((item:any)=>item.id===variantProduct.id)||variantProduct:null;
+  const activeVariantProduct=variantProduct?(()=>{const fresh=data.find((item:any)=>item.id===variantProduct.id)||variantProduct;return {...fresh,variants:Array.isArray(fresh.variants)?fresh.variants.filter((variant:any)=>variant.active!==false):[]};})():null;
   const formVariants=Array.isArray(f.variants)?f.variants:[];
   const visibleVariantFields=variantFieldOptions.filter(option=>Boolean((f.variantFields||defaultVariantFields)[option.key]));
   const inlineVariantReady=!f.variantMode||formVariants.some((variant:any)=>[variant.name,variant.sku,variant.color,variant.size,variant.model,variant.lens,variant.imageUrl].some(value=>String(value||'').trim())||Number(variant.stock||0)>0);
@@ -441,15 +720,15 @@ function ProductsTabV2(){
   const addFormVariant=()=>setF((prev:any)=>{const rows=Array.isArray(prev.variants)?prev.variants:[];return {...prev,variantMode:true,variantFields:prev.variantFields||{...defaultVariantFields},variants:[...rows,{...blankVariantFor(prev),sortOrder:rows.length}]};});
   const removeFormVariant=(index:number)=>setF((prev:any)=>({...prev,variants:(Array.isArray(prev.variants)?prev.variants:[]).filter((_:any,i:number)=>i!==index).map((variant:any,i:number)=>({...variant,sortOrder:i}))}));
   const variantReady=Boolean([variantForm.name,variantForm.color,variantForm.size,variantForm.model,variantForm.lens].some(value=>String(value||'').trim()));
-  const saveVariant=useMutation({mutationFn:(payload:any)=>api(payload.id?'/admin/product-variants/'+payload.id:'/admin/products/'+activeVariantProduct.id+'/variants',{method:payload.id?'PATCH':'POST',body:JSON.stringify({...payload,id:undefined,price:Number(payload.price||activeVariantProduct?.price||0),priceUsd:Number(payload.priceUsd||rdToUsd(payload.price||activeVariantProduct?.price||0)),stock:Number(payload.stock||0),sortOrder:Number(payload.sortOrder||0),active:Boolean(payload.active)})}),onSuccess:()=>{qc.invalidateQueries({queryKey:['admin-products']});toast.success('Variante guardada');if(activeVariantProduct)setVariantForm(blankVariantFor(activeVariantProduct));},onError:(e:any)=>toast.error(e.message)});
-  const deleteVariant=useMutation({mutationFn:(id:string)=>api('/admin/product-variants/'+id,{method:'DELETE'}),onSuccess:()=>{qc.invalidateQueries({queryKey:['admin-products']});toast.success('Variante eliminada o desactivada');if(activeVariantProduct)setVariantForm(blankVariantFor(activeVariantProduct));},onError:(e:any)=>toast.error(e.message)});
+  const saveVariant=useMutation({mutationFn:(payload:any)=>api(payload.id?'/admin/product-variants/'+payload.id:'/admin/products/'+activeVariantProduct.id+'/variants',{method:payload.id?'PATCH':'POST',body:JSON.stringify({...payload,id:undefined,price:Number(payload.price||activeVariantProduct?.price||0),priceUsd:Number(payload.priceUsd||rdToUsd(payload.price||activeVariantProduct?.price||0)),stock:Number(payload.stock||0),sortOrder:Number(payload.sortOrder||0),active:Boolean(payload.active)})}),onSuccess:()=>{qc.invalidateQueries({queryKey:['admin-products']});toast.success('Opcion guardada');if(activeVariantProduct)setVariantForm(blankVariantFor(activeVariantProduct));},onError:(e:any)=>toast.error(e.message)});
+  const deleteVariant=useMutation({mutationFn:(id:string)=>api('/admin/product-variants/'+id,{method:'DELETE'}),onSuccess:(_:any,id:string)=>{qc.setQueriesData({queryKey:['admin-products']},(current:any)=>Array.isArray(current)?current.map((product:any)=>product.id===activeVariantProduct?.id?{...product,variants:(product.variants||[]).filter((variant:any)=>variant.id!==id)}:product):current);qc.invalidateQueries({queryKey:['admin-products']});setVariantProduct((current:any)=>current?{...current,variants:(current.variants||[]).filter((variant:any)=>variant.id!==id)}:current);toast.success('Opcion eliminada');if(activeVariantProduct)setVariantForm(blankVariantFor(activeVariantProduct));},onError:(e:any)=>toast.error(e.message)});
 
   return <div>
-    <Toolbar title="Productos" subtitle="Controla precios, costo, inventario, galería, descuentos y variantes." search={q} setSearch={setQ}>
+    <Toolbar title="Productos" subtitle="Controla precios, costo, inventario, galería, descuentos y opciones del producto." search={q} setSearch={setQ}>
       <Field label="Filtrar por estado"><AdminSelect className="min-w-[210px]" value={status} onChange={setStatus} options={[{value:'',label:'Todos'},...['ACTIVE','NEW','BESTSELLER','SOLD_OUT','UPCOMING','LIMITED_DROP'].map(x=>({value:x,label:x}))]}/></Field>
     </Toolbar>
     {!cats.length&&<div className="mb-5 rounded-2xl border border-yellow-400/20 bg-yellow-500/10 p-4 text-sm text-yellow-100">Primero crea una categoría para poder publicar productos.</div>}
-    <Panel title={f.id?'Editar producto':'Crear producto'} action={<button type="button" className="btn-ghost rounded-full px-4 py-2 text-xs" onClick={()=>setProductFormOpen(value=>!value)}><ChevronDown size={15} className={productFormOpen?'rotate-180 transition':'transition'}/>{productFormOpen?'Minimizar':'Mostrar'}</button>}>
+    <div ref={productFormRef}><Panel title={f.id?'Editar producto':'Crear producto'} action={<button type="button" className="btn-ghost rounded-full px-4 py-2 text-xs" onClick={()=>setProductFormOpen(value=>!value)}><ChevronDown size={15} className={productFormOpen?'rotate-180 transition':'transition'}/>{productFormOpen?'Minimizar':'Mostrar'}</button>}>
       {productFormOpen?<div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <Field label="Nombre del producto"><input className="input-dark" value={f.name} onChange={e=>setF({...f,name:e.target.value,slug:f.slug||slugify(e.target.value)})}/></Field>
         <Field label="Slug / URL"><input className="input-dark" value={f.slug} onChange={e=>setF({...f,slug:e.target.value})}/></Field>
@@ -473,14 +752,14 @@ function ProductsTabV2(){
         {currentImages.length>0&&<div className="md:col-span-2 xl:col-span-4"><span className="mb-3 block text-xs font-bold uppercase tracking-[.12em] text-white/55">Orden de imágenes</span><div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">{currentImages.map((image:any,index:number)=><div key={image.url+'-'+index} className="overflow-hidden rounded-3xl border border-white/10 bg-black/25"><div className="relative h-48 bg-white/5"><img src={image.url} alt={image.alt||f.name} className="h-full w-full object-cover"/><span className="absolute left-3 top-3 rounded-full bg-orange-500 px-3 py-1 text-xs font-black text-black">#{index+1}</span></div><div className="space-y-2 p-3"><input className="input-dark text-xs" value={image.alt||''} placeholder="Texto alternativo" onChange={e=>updateImages(currentImages.map((img:any,i:number)=>i===index?{...img,alt:e.target.value}:img))}/><div className="grid grid-cols-2 gap-2"><button type="button" className="rounded-full bg-white/10 px-3 py-2 text-xs" onClick={()=>moveImage(index,-1)} disabled={index===0}>Subir</button><button type="button" className="rounded-full bg-white/10 px-3 py-2 text-xs" onClick={()=>moveImage(index,1)} disabled={index===currentImages.length-1}>Bajar</button><button type="button" className="rounded-full bg-orange-500/20 px-3 py-2 text-xs text-orange-100" onClick={()=>makePrimary(index)} disabled={index===0}>Primera</button><button type="button" className="rounded-full bg-red-500/10 px-3 py-2 text-xs text-red-200" onClick={()=>removeImage(index)}>Quitar</button></div></div></div>)}</div></div>}
         <div className="md:col-span-2 xl:col-span-4 rounded-3xl border border-orange-400/20 bg-orange-500/[.06] p-4 shadow-[0_20px_70px_rgba(249,115,22,.08)]">
           <div className="flex flex-wrap items-start justify-between gap-3">
-            <label className="flex min-h-11 items-center gap-3 rounded-2xl border border-white/10 bg-black/25 px-4 text-sm font-bold text-white"><input type="checkbox" checked={Boolean(f.variantMode)} onChange={e=>setVariantMode(e.target.checked)}/> Este producto tiene variantes</label>
+            <label className="flex min-h-11 items-center gap-3 rounded-2xl border border-white/10 bg-black/25 px-4 text-sm font-bold text-white"><input type="checkbox" checked={Boolean(f.variantMode)} onChange={e=>setVariantMode(e.target.checked)}/> Este producto tiene opciones</label>
             <span className="rounded-full border border-orange-400/20 bg-black/30 px-3 py-1 text-xs font-black uppercase tracking-[.12em] text-orange-100">{formVariants.length} opciones</span>
           </div>
           <p className="mt-2 text-xs text-white/45">Activa solo la información que verá el cliente. Cada fila puede tener stock, precio, SKU e imagen propia.</p>
           {f.variantMode&&<div className="mt-4 space-y-4">
             <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">{variantFieldOptions.map(option=><label key={option.key} className={'flex min-h-11 items-center gap-3 rounded-2xl border px-3 text-sm transition '+((f.variantFields||defaultVariantFields)[option.key]?'border-orange-400/35 bg-orange-500/15 text-orange-50':'border-white/10 bg-black/25 text-white/55')}><input type="checkbox" checked={Boolean((f.variantFields||defaultVariantFields)[option.key])} onChange={e=>setVariantFieldVisibility(option.key,e.target.checked)}/> Mostrar {option.label.toLowerCase()}</label>)}</div>
             <div className="space-y-3">{formVariants.map((variant:any,index:number)=><div key={(variant.id||'new')+'-'+index} className="rounded-3xl border border-white/10 bg-black/25 p-4">
-              <div className="mb-3 flex flex-wrap items-center justify-between gap-2"><b>Variante #{index+1}</b><button type="button" className="rounded-full bg-red-500/10 px-3 py-2 text-xs text-red-200" onClick={()=>removeFormVariant(index)}>Quitar</button></div>
+              <div className="mb-3 flex flex-wrap items-center justify-between gap-2"><b>Opcion #{index+1}</b><button type="button" className="rounded-full bg-red-500/10 px-3 py-2 text-xs text-red-200" onClick={()=>removeFormVariant(index)}>Quitar</button></div>
               <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
                 <Field label="Nombre visible"><input className="input-dark" value={variant.name||''} onChange={e=>updateFormVariant(index,{name:e.target.value})} placeholder="Opcional"/></Field>
                 {visibleVariantFields.map(option=><Field key={option.key} label={option.label}><input className="input-dark" value={variant[option.key]||''} onChange={e=>updateFormVariant(index,{[option.key]:e.target.value})} placeholder={option.placeholder}/></Field>)}
@@ -490,19 +769,19 @@ function ProductsTabV2(){
                 <Field label="Precio US$"><input type="number" step="0.01" readOnly className="input-dark opacity-80" value={Number(variant.priceUsd||rdToUsd(variant.price||0)).toFixed(2)}/></Field>
                 <Field label="Subir imagen"><input type="file" accept="image/*" className="input-dark" onChange={async e=>{const file=e.target.files?.[0];if(file)updateFormVariant(index,{imageUrl:await readFile(file)})}}/></Field>
                 <Field label="URL de imagen"><input className="input-dark" value={variant.imageUrl||''} onChange={e=>updateFormVariant(index,{imageUrl:e.target.value})}/></Field>
-                <label className="flex min-h-11 items-center gap-3 rounded-xl border border-white/10 bg-white/[.04] px-3 text-sm text-white/70"><input type="checkbox" checked={variant.active!==false} onChange={e=>updateFormVariant(index,{active:e.target.checked})}/> Variante activa</label>
+                <label className="flex min-h-11 items-center gap-3 rounded-xl border border-white/10 bg-white/[.04] px-3 text-sm text-white/70"><input type="checkbox" checked={variant.active!==false} onChange={e=>updateFormVariant(index,{active:e.target.checked})}/> Opcion activa</label>
               </div>
             </div>)}</div>
-            <div className="flex flex-wrap items-center gap-3"><button type="button" className="btn-ghost rounded-full px-4 py-2" onClick={addFormVariant}>+ Agregar variante</button>{!inlineVariantReady&&<span className="text-xs text-red-200">Agrega al menos una variante con color, talla, modelo, lente, SKU, imagen o stock.</span>}</div>
+            <div className="flex flex-wrap items-center gap-3"><button type="button" className="btn-ghost rounded-full px-4 py-2" onClick={addFormVariant}>+ Agregar opcion</button>{!inlineVariantReady&&<span className="text-xs text-red-200">Agrega al menos una opcion con color, talla, modelo, lente, SKU, imagen o stock.</span>}</div>
           </div>}
         </div>
         <button disabled={!cats.length||!currentImages.length||!inlineVariantReady} className="btn-ember justify-center self-end disabled:opacity-40" onClick={()=>save.mutate(f)}>{f.id?'Guardar cambios':'Crear producto'}</button>
         {f.id&&<button className="btn-ghost justify-center self-end" onClick={()=>setF(blank)}>Cancelar edición</button>}
       </div>:<div className="rounded-2xl border border-dashed border-white/10 bg-black/20 p-4 text-sm text-white/50">Formulario minimizado. Presiona Mostrar para crear o editar productos.</div>}
-    </Panel>
+    </Panel></div>
 
-    {activeVariantProduct&&<Panel title={'Variantes · '+activeVariantProduct.name}>
-      <div className="mb-5 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-orange-400/20 bg-orange-500/10 p-4 text-sm text-orange-50"><span>Usa variantes para color, tamaño, modelo, tipo de lente o talla. Cada variante maneja su propio stock real.</span><button type="button" className="rounded-full bg-black/30 px-4 py-2 text-xs" onClick={()=>{setVariantProduct(null);setVariantForm(blankVariant)}}>Cerrar variantes</button></div>
+    {activeVariantProduct&&<Panel title={'Opciones del producto · '+activeVariantProduct.name}>
+      <div className="mb-5 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-orange-400/20 bg-orange-500/10 p-4 text-sm text-orange-50"><span>Usa opciones para color, tamaño, modelo, tipo de lente o talla. Cada opcion maneja su propio stock real.</span><button type="button" className="rounded-full bg-black/30 px-4 py-2 text-xs" onClick={()=>{setVariantProduct(null);setVariantForm(blankVariant)}}>Cerrar opciones</button></div>
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <Field label="Nombre visible" hint="Opcional: si lo dejas vacío, se arma con color/tamaño/modelo/lente."><input className="input-dark" value={variantForm.name} onChange={e=>setVariantForm({...variantForm,name:e.target.value})} placeholder="Negro / M / Polarizada"/></Field>
         <Field label="Color"><input className="input-dark" value={variantForm.color||''} onChange={e=>setVariantForm({...variantForm,color:e.target.value})} placeholder="Negro, dorado, transparente"/></Field>
@@ -512,17 +791,17 @@ function ProductsTabV2(){
         <Field label="SKU interno"><input className="input-dark" value={variantForm.sku||''} onChange={e=>setVariantForm({...variantForm,sku:e.target.value})} placeholder="MB-LENTE-NEGRO"/></Field>
         <Field label="Precio RD$"><input type="number" step="0.01" className="input-dark" value={variantForm.price||0} onChange={e=>{const price=Number(e.target.value);setVariantForm({...variantForm,price,priceUsd:rdToUsd(price)})}}/></Field>
         <Field label="Precio US$"><input type="number" step="0.01" readOnly className="input-dark opacity-80" value={Number(variantForm.priceUsd||rdToUsd(variantForm.price||0)).toFixed(2)}/></Field>
-        <Field label="Stock de esta variante"><input type="number" className="input-dark" value={variantForm.stock||0} onChange={e=>setVariantForm({...variantForm,stock:Number(e.target.value)})}/></Field>
+        <Field label="Stock de esta opcion"><input type="number" className="input-dark" value={variantForm.stock||0} onChange={e=>setVariantForm({...variantForm,stock:Number(e.target.value)})}/></Field>
         <Field label="Orden"><input type="number" className="input-dark" value={variantForm.sortOrder||0} onChange={e=>setVariantForm({...variantForm,sortOrder:Number(e.target.value)})}/></Field>
-        <Field label="Subir imagen de variante"><input type="file" accept="image/*" className="input-dark" onChange={async e=>{const file=e.target.files?.[0];if(file)setVariantForm({...variantForm,imageUrl:await readFile(file)})}}/></Field>
+        <Field label="Subir imagen de opcion"><input type="file" accept="image/*" className="input-dark" onChange={async e=>{const file=e.target.files?.[0];if(file)setVariantForm({...variantForm,imageUrl:await readFile(file)})}}/></Field>
         <Field label="URL de imagen"><input className="input-dark" value={variantForm.imageUrl||''} onChange={e=>setVariantForm({...variantForm,imageUrl:e.target.value})}/></Field>
-        <label className="flex min-h-11 items-center gap-3 rounded-xl border border-white/10 bg-white/[.04] px-3 text-sm text-white/70"><input type="checkbox" checked={Boolean(variantForm.active)} onChange={e=>setVariantForm({...variantForm,active:e.target.checked})}/> Variante activa</label>
-        <button disabled={!variantReady} type="button" className="btn-ember justify-center disabled:opacity-40" onClick={()=>saveVariant.mutate({...variantForm,name:variantForm.name||variantLabel(variantForm)})}>{variantForm.id?'Guardar variante':'Crear variante'}</button>
-        {variantForm.id&&<button type="button" className="btn-ghost justify-center" onClick={()=>setVariantForm(blankVariantFor(activeVariantProduct))}>Nueva variante</button>}
+        <label className="flex min-h-11 items-center gap-3 rounded-xl border border-white/10 bg-white/[.04] px-3 text-sm text-white/70"><input type="checkbox" checked={Boolean(variantForm.active)} onChange={e=>setVariantForm({...variantForm,active:e.target.checked})}/> Opcion activa</label>
+        <button disabled={!variantReady} type="button" className="btn-ember justify-center disabled:opacity-40" onClick={()=>saveVariant.mutate({...variantForm,name:variantForm.name||variantLabel(variantForm)})}>{variantForm.id?'Guardar opcion':'Crear opcion'}</button>
+        {variantForm.id&&<button type="button" className="btn-ghost justify-center" onClick={()=>setVariantForm(blankVariantFor(activeVariantProduct))}>Nueva opcion</button>}
       </div>
-      <div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-3">{(activeVariantProduct.variants||[]).map((variant:any)=><div key={variant.id} className={'rounded-2xl border p-4 '+(variant.active?'border-white/10 bg-black/25':'border-red-400/20 bg-red-500/10')}><div className="flex gap-3">{variant.imageUrl&&<img src={variant.imageUrl} alt={variantLabel(variant)} className="h-16 w-16 rounded-xl object-cover"/>}<div className="min-w-0 flex-1"><b>{variantLabel(variant)}</b><p className="text-xs text-white/45">{[variant.color,variant.size,variant.model,variant.lens].filter(Boolean).join(' · ')||'Sin atributos'} · SKU {variant.sku||'sin SKU'}</p><p className="text-xs text-white/45">stock {variant.stock} · orden {variant.sortOrder}</p><p className="text-sm text-orange-100">{money(variant.price||activeVariantProduct.price)} · US {money(variant.priceUsd||activeVariantProduct.priceUsd,'US$')}</p></div></div><div className="mt-3 flex gap-2"><button type="button" className="rounded-full bg-white/10 px-4 py-2 text-xs" onClick={()=>setVariantForm({...blankVariant,...variant,price:variant.price||activeVariantProduct.price,priceUsd:variant.priceUsd||rdToUsd(variant.price||activeVariantProduct.price)})}>Editar</button><button type="button" className="rounded-full bg-red-500/10 px-4 py-2 text-xs text-red-200" onClick={()=>deleteVariant.mutate(variant.id)}>Eliminar</button></div></div>)}{!activeVariantProduct.variants?.length&&<Empty text="Este producto todavía no tiene variantes."/>}</div>
+      <div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-3">{(activeVariantProduct.variants||[]).map((variant:any)=><div key={variant.id} className={'rounded-2xl border p-4 '+(variant.active?'border-white/10 bg-black/25':'border-red-400/20 bg-red-500/10')}><div className="flex gap-3">{variant.imageUrl&&<img src={variant.imageUrl} alt={variantLabel(variant)} className="h-16 w-16 rounded-xl object-cover"/>}<div className="min-w-0 flex-1"><b>{variantLabel(variant)}</b><p className="text-xs text-white/45">{[variant.color,variant.size,variant.model,variant.lens].filter(Boolean).join(' · ')||'Sin atributos'} · SKU {variant.sku||'sin SKU'}</p><p className="text-xs text-white/45">stock {variant.stock} · orden {variant.sortOrder}</p><p className="text-sm text-orange-100">{money(variant.price||activeVariantProduct.price)} · US {money(variant.priceUsd||activeVariantProduct.priceUsd,'US$')}</p></div></div><div className="mt-3 flex gap-2"><button type="button" className="rounded-full bg-white/10 px-4 py-2 text-xs" onClick={()=>setVariantForm({...blankVariant,...variant,price:variant.price||activeVariantProduct.price,priceUsd:variant.priceUsd||rdToUsd(variant.price||activeVariantProduct.price)})}>Editar</button><button type="button" className="rounded-full bg-red-500/10 px-4 py-2 text-xs text-red-200" onClick={()=>deleteVariant.mutate(variant.id)}>Eliminar</button></div></div>)}{!activeVariantProduct.variants?.length&&<Empty text="Este producto todavia no tiene opciones."/>}</div>
     </Panel>}
-    <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-3">{data.map((p:any)=>{const images=imageList(p);return <div key={p.id} className="rounded-3xl border border-white/10 bg-white/[.03] p-5">{images[0]?.url&&<img src={images[0].url} className="mb-4 h-64 w-full rounded-3xl object-cover" alt={p.name}/>}<b>{p.name}</b><p className="text-sm text-white/45">{p.category?.name||p.categoryName} · stock disponible {availableStockFor(p)} · {Array.isArray(p.variants)?p.variants.length:0} variantes · {images.length} imágenes</p><p className="mt-2 text-sm">Venta base {money(p.price)} · Costo {money(p.cost)} · US {money(p.priceUsd,'US$')}</p>{p.discount?.active&&<p className="mt-2 rounded-2xl border border-orange-400/25 bg-orange-500/10 px-3 py-2 text-sm text-orange-50">Oferta {p.discount.label||'activa'}: {money(p.salePrice)} · -{p.discount.percent}%</p>}{Array.isArray(p.variants)&&p.variants.length>0&&<div className="mt-3 flex flex-wrap gap-2">{p.variants.slice(0,4).map((variant:any)=><span key={variant.id} className="rounded-full border border-white/10 bg-white/[.04] px-3 py-1 text-xs text-white/65">{variantLabel(variant)} · stock {variant.stock}</span>)}</div>}{images.length>1&&<div className="mt-3 flex gap-2 overflow-x-auto">{images.slice(0,5).map((image:any,index:number)=><img key={p.id+'-'+index} src={image.url} alt={image.alt||p.name} className="h-14 w-14 shrink-0 rounded-xl object-cover opacity-80"/>)}</div>}<div className="mt-4 flex flex-wrap gap-2"><button className="rounded-full bg-white/10 px-4 py-2 text-sm" onClick={()=>{setProductFormOpen(true);setF(hydrateProductForEdit(p))}}>Editar</button><button className="rounded-full bg-orange-500/15 px-4 py-2 text-sm text-orange-100" onClick={()=>{setVariantProduct(p);setVariantForm(blankVariantFor(p))}}>Variantes</button><button className="rounded-full bg-red-500/10 px-4 py-2 text-sm text-red-200" onClick={()=>del.mutate(p.id)}>Eliminar</button></div></div>})}</div>
+    <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-3">{data.map((p:any)=>{const images=imageList(p);const activeVariants=Array.isArray(p.variants)?p.variants.filter((variant:any)=>variant.active!==false):[];return <div key={p.id} className="rounded-3xl border border-white/10 bg-white/[.03] p-5">{images[0]?.url&&<img src={images[0].url} className="mb-4 h-64 w-full rounded-3xl object-cover" alt={p.name}/>}<b>{p.name}</b><p className="text-sm text-white/45">{p.category?.name||p.categoryName} · stock disponible {availableStockFor(p)} · {activeVariants.length} opciones · {images.length} imágenes</p><p className="mt-2 text-sm">Venta base {money(p.price)} · Costo {money(p.cost)} · US {money(p.priceUsd,'US$')}</p>{p.discount?.active&&<p className="mt-2 rounded-2xl border border-orange-400/25 bg-orange-500/10 px-3 py-2 text-sm text-orange-50">Oferta {p.discount.label||'activa'}: {money(p.salePrice)} · -{p.discount.percent}%</p>}{activeVariants.length>0&&<div className="mt-3 flex flex-wrap gap-2">{activeVariants.slice(0,4).map((variant:any)=><span key={variant.id} className="rounded-full border border-white/10 bg-white/[.04] px-3 py-1 text-xs text-white/65">{variantLabel(variant)} · stock {variant.stock}</span>)}</div>}{images.length>1&&<div className="mt-3 flex gap-2 overflow-x-auto">{images.slice(0,5).map((image:any,index:number)=><img key={p.id+'-'+index} src={image.url} alt={image.alt||p.name} className="h-14 w-14 shrink-0 rounded-xl object-cover opacity-80"/>)}</div>}<div className="mt-4 flex flex-wrap gap-2"><button className="rounded-full bg-white/10 px-4 py-2 text-sm" onClick={()=>editProduct(p)}>Editar</button><button className="rounded-full bg-orange-500/15 px-4 py-2 text-sm text-orange-100" onClick={()=>{setVariantProduct({...p,variants:activeVariants});setVariantForm(blankVariantFor(p))}}>Opciones</button><button className="rounded-full bg-red-500/10 px-4 py-2 text-sm text-red-200" onClick={()=>del.mutate(p.id)}>Eliminar</button></div></div>})}</div>
   </div>
 }
 

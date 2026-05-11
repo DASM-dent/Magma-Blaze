@@ -17,7 +17,7 @@ type CartContextValue = {
   subtotal: number;
   itemCount: number;
   addItem: (productId: string, variantId?: string, quantity?: number) => Promise<void> | void;
-  addSnapshotItems: (items: CartSnapshotItem[]) => void;
+  addSnapshotItems: (items: CartSnapshotItem[]) => boolean;
   updateItem: (id: string, quantity: number) => void;
   removeItem: (id: string) => void;
   clearCart: () => void;
@@ -152,13 +152,13 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
           },
         },
       });
-      return;
+      return false;
     }
     const normalized = snapshotItems
       .map((item, index) => normalizeSnapshotItem(item, index))
       .filter((item): item is CartItem => Boolean(item));
 
-    if (!normalized.length) return;
+    if (!normalized.length) return false;
 
     setItems((prev) => {
       const next = [...prev];
@@ -179,6 +179,7 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
     });
     setIsOpen(true);
     toast.success('Carrito agregado', { description: 'Los productos compartidos ya estan en tu carrito.' });
+    return true;
   };
   const removeItem = (id: string) => setItems((prev) => prev.filter((i) => i.id !== id));
   const clearCart = () => setItems([]);

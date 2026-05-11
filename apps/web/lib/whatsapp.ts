@@ -47,7 +47,7 @@ export function cartAvailabilityWhatsappUrl(
   const lines = items.map((item) => {
     const productUrl = getProductUrl(item.product.slug);
     const price = item.unitPrice ? ` - ${symbol} ${(item.unitPrice * item.quantity).toLocaleString("es-DO")}` : "";
-    const variant = item.variant?.name ? ` (variante: ${item.variant.name})` : "";
+    const variant = item.variant?.name ? ` (opcion: ${item.variant.name})` : "";
     return `- ${item.product.name}${variant} x ${item.quantity}${price}${productUrl ? ` (${productUrl})` : ""}`;
   });
 
@@ -74,7 +74,7 @@ export function cartOrderWhatsappUrl(
     const productUrl = getProductUrl(item.product.slug);
     const lineTotal = item.unitPrice ? item.unitPrice * item.quantity : 0;
     const price = item.unitPrice ? ` - ${symbol} ${lineTotal.toLocaleString("es-DO")}` : "";
-    const variant = item.variant?.name ? ` (variante: ${item.variant.name})` : "";
+    const variant = item.variant?.name ? ` (opcion: ${item.variant.name})` : "";
     return `${index + 1}. ${item.product.name}${variant} x ${item.quantity}${price}${productUrl ? `\n   ${productUrl}` : ""}`;
   });
 
