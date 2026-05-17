@@ -19,7 +19,19 @@ export default function Providers({ children }: { children: React.ReactNode }) {
             <FavoritesProvider>
               <SiteGate>{children}</SiteGate>
             </FavoritesProvider>
-            <Toaster richColors position="top-right" />
+            <Toaster
+              richColors
+              position="top-right"
+              toastOptions={{
+                classNames: {
+                  toast: 'mb-toast',
+                  title: 'mb-toast-title',
+                  description: 'mb-toast-description',
+                  actionButton: 'mb-toast-action',
+                  cancelButton: 'mb-toast-cancel',
+                },
+              }}
+            />
           </CartProvider>
         </LocaleProvider>
       </AuthProvider>

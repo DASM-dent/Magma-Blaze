@@ -11,7 +11,7 @@ export const metadata: Metadata = {
     shortcut: '/images/mb-tab-logo.png',
     apple: '/images/mb-tab-logo.png',
   },
-  description: 'Tienda e-commerce premium de lentes, drops limitados y estilo volcánico.',
+  description: 'Mejora tu estilo con nuestros accesorios. Lentes en versiones deportivas y diferentes estilos dependiendo tu vestimenta. ¿Dejarás que otro te cuente o serás tú quien lo haga?',
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

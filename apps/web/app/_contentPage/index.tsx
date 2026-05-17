@@ -19,45 +19,45 @@ function FaqContent({ blocks, isLoading }: { blocks: any[]; isLoading: boolean }
   const items = blocks;
 
   return (
-    <section className="min-h-screen bg-[#f7f4ef] px-4 pt-32 pb-20 text-[#1f2937]">
+    <section className="min-h-screen px-4 pt-32 pb-20 text-white">
       <div className="mx-auto max-w-6xl">
-        <div className="mb-12">
-          <p className="mb-3 text-xs font-black uppercase tracking-[0.22em] text-orange-600">Soporte</p>
-          <h1 className="text-4xl font-light tracking-normal text-[#1f2937] md:text-5xl">Preguntas frecuentes</h1>
-          <p className="mt-5 max-w-4xl text-[15px] leading-relaxed text-[#415064]">
+        <div className="mb-12 rounded-[2rem] border border-white/10 bg-white/[.035] p-8">
+          <p className="mb-3 text-xs font-black uppercase tracking-[0.22em] text-orange-400">Soporte</p>
+          <h1 className="text-4xl font-black tracking-normal text-white md:text-5xl">Preguntas frecuentes</h1>
+          <p className="mt-5 max-w-4xl text-[15px] leading-relaxed text-white/55">
             Estamos a tu disposicion para cualquier pregunta sobre productos, disponibilidad, pagos y envios. Magma Blaze opera como tienda virtual, asi que cada pedido se confirma antes de enviarse.
           </p>
         </div>
 
         {isLoading ? (
-          <p className="text-[#6b7280]">Cargando preguntas...</p>
+          <p className="text-white/45">Cargando preguntas...</p>
         ) : !items.length ? (
-          <div className="border-y border-[#d9d3ca] bg-white/35 px-3 py-8 text-[#6b7280] md:px-4">
+          <div className="rounded-[2rem] border border-dashed border-white/10 bg-white/[.035] px-5 py-8 text-white/50 md:px-6">
             Aun no hay preguntas frecuentes publicadas.
           </div>
         ) : (
-          <div className="overflow-hidden border-y border-[#d9d3ca] bg-white/35">
+          <div className="overflow-hidden rounded-[2rem] border border-white/10 bg-white/[.035]">
             {items.map((item: any) => {
               const isOpen = openId === item.id;
               return (
-                <article key={item.id} className="border-b border-[#d9d3ca] last:border-b-0">
+                <article key={item.id} className="border-b border-white/10 last:border-b-0">
                   <button
                     type="button"
                     onClick={() => setOpenId(isOpen ? null : item.id)}
-                    className="group flex w-full items-center gap-4 px-3 py-4 text-left transition hover:bg-white/70 md:px-4"
+                    className="group flex w-full items-center gap-4 px-5 py-5 text-left transition hover:bg-white/[.055] md:px-6"
                     aria-expanded={isOpen}
                   >
-                    <span className={`flex h-5 w-5 shrink-0 items-center justify-center text-xs text-[#111827] transition-transform ${isOpen ? 'rotate-90' : ''}`}>
-                      ▶
+                    <span className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-orange-400/25 bg-orange-500/10 text-xs font-black text-orange-200 transition-transform ${isOpen ? 'rotate-90' : ''}`}>
+                      &gt;
                     </span>
-                    <span className="text-[15px] font-bold text-[#253143]">{item.title}</span>
+                    <span className="text-[15px] font-bold text-white">{item.title}</span>
                   </button>
                   <div className={`grid transition-all duration-300 ease-out ${isOpen ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0'}`}>
                     <div className="overflow-hidden">
-                      <div className="px-12 pb-8 text-[15px] leading-8 text-[#4b5563] md:px-14">
-                        {item.subtitle && <p className="mb-2 font-semibold text-orange-700">{item.subtitle}</p>}
+                      <div className="px-14 pb-8 text-[15px] leading-8 text-white/60 md:px-16">
+                        {item.subtitle && <p className="mb-2 font-semibold text-orange-200/80">{item.subtitle}</p>}
                         <p className="whitespace-pre-line">{item.body || ''}</p>
-                        {item.url && <Link href={item.url} className="mt-4 inline-flex text-sm font-bold text-orange-700 hover:text-orange-600">Ver mas</Link>}
+                        {item.url && <Link href={item.url} className="mt-4 inline-flex text-sm font-bold text-orange-300 hover:text-orange-200">Ver mas</Link>}
                       </div>
                     </div>
                   </div>

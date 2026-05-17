@@ -5,7 +5,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { API_URL, api } from '@/lib/api';
 import { useAuth } from '@/context/AuthContext';
-import { Activity, Bell, Boxes, CalendarDays, Check, ChevronDown, Eye, FileText, Flame, LayoutDashboard, LifeBuoy, Lock, LogOut, Moon, PieChart, Plus, Search, Settings, ShieldCheck, ShoppingBag, Sun, Tag, Trash2, Truck, Users, Wallet } from 'lucide-react';
+import { Activity, AlertTriangle, Bell, Boxes, CalendarDays, Check, CheckCircle2, ChevronDown, Eye, FileText, Flame, Inbox, LayoutDashboard, LifeBuoy, Lock, LogOut, Moon, PieChart, Plus, RotateCcw, Search, Server, Settings, ShieldCheck, ShoppingBag, Sun, Tag, Trash2, Truck, Users, Wallet, XCircle } from 'lucide-react';
 
 type Tab='overview'|'products'|'categories'|'orders'|'drops'|'models'|'content'|'shipping'|'users'|'finance'|'reports'|'sales'|'notifications'|'coupons'|'inventory'|'settings'|'security'|'support'|'roles';
 const tabs:{key:Tab;label:string;icon:ReactNode;permission:string}[]=[
@@ -53,6 +53,21 @@ const slugify=(v:string)=>v.toLowerCase().normalize('NFD').replace(/[\u0300-\u03
 const notificationTypeLabels:any={ORDER:'Pedidos',SUPPORT:'Ayuda',SALES:'Ventas',INVENTORY:'Inventario',SYSTEM:'Sistema'};
 const notificationSectionLabels:any={orders:'Pedidos',products:'Productos',support:'Ayuda',sales:'Ventas',inventory:'Inventario',users:'Usuarios',shipping:'Envios',notifications:'Sistema'};
 const notificationSummaryDefault={total:0,read:0,byType:{},byPriority:{},bySection:{}} as any;
+const notificationPriorityLabels:any={LOW:'Baja',NORMAL:'Normal',HIGH:'Alta',CRITICAL:'Crítica'};
+const notificationPriorityClass:any={LOW:'is-low',NORMAL:'is-normal',HIGH:'is-high',CRITICAL:'is-critical'};
+function notificationTargetTab(notification:any):Tab{
+  const action=String(notification?.actionUrl||'').toLowerCase();
+  const type=String(notification?.type||'SYSTEM').toUpperCase();
+  if(action.includes('product'))return 'products';
+  if(action.includes('inventory'))return 'inventory';
+  if(action.includes('order')||type==='ORDER')return 'orders';
+  if(action.includes('ticket')||action.includes('support')||type==='SUPPORT')return 'support';
+  if(action.includes('sale')||type==='SALES')return 'sales';
+  if(action.includes('shipping'))return 'shipping';
+  if(action.includes('user'))return 'users';
+  return 'notifications';
+}
+function urgentTaskClass(level:string){return level==='critical'?'is-critical':level==='warning'?'is-warning':'is-info';}
 function adminDashboardError(error: unknown) {
   const status = Number((error as any)?.status || 0);
   const detail = error instanceof Error ? error.message : '';
@@ -107,6 +122,69 @@ function NotificationDashboardPanel(){
     <div className="mt-5 space-y-3">{items.slice(0,8).map((notification:any)=><button type="button" key={notification.id} onClick={()=>!notification.read&&markRead.mutate(notification.id)} className={'admin-notification-item w-full text-left '+(notification.read?'is-read':'is-unread')}><div className="flex items-start justify-between gap-3"><div><span className="admin-notification-type">{notificationTypeLabels[notification.type]||notification.type}</span><b className="mt-1 block">{notification.title}</b><p className="mt-1 text-sm">{notification.body}</p><p className="mt-2 text-xs">{notification.priority} · {new Date(notification.createdAt).toLocaleString('es-DO')}</p></div>{!notification.read&&<span className="admin-unread-dot"/>}</div></button>)}{!items.length&&<Empty text="No hay notificaciones todavía."/>}</div>
   </Panel>
 }
+
+function AdminNotificationBell({setTab}:{setTab:(t:Tab)=>void}){
+  const qc=useQueryClient();
+  const [open,setOpen]=useState(false);
+  const ref=useRef<HTMLDivElement|null>(null);
+  const {data:summary=notificationSummaryDefault}=useQuery({queryKey:['admin-notifications-summary'],queryFn:()=>api<any>('/admin/notifications/summary'),refetchInterval:30000});
+  const {data:items=[]}=useQuery({queryKey:['admin-topbar-notifications'],queryFn:()=>api<any[]>('/admin/notifications?unread=0'),refetchInterval:30000});
+  const invalidate=()=>{qc.invalidateQueries({queryKey:['admin-notifications-summary']});qc.invalidateQueries({queryKey:['admin-topbar-notifications']});qc.invalidateQueries({queryKey:['admin-dashboard-notifications']});qc.invalidateQueries({queryKey:['admin-notifications']});qc.invalidateQueries({queryKey:['admin-dashboard']});};
+  const read=useMutation({mutationFn:(id:string)=>api('/admin/notifications/'+id+'/read',{method:'PATCH',body:JSON.stringify({})}),onSuccess:()=>invalidate()});
+  const readAll=useMutation({mutationFn:()=>api('/admin/notifications/read-all',{method:'POST',body:JSON.stringify({})}),onSuccess:()=>{invalidate();toast.success('Notificaciones marcadas como leídas')}});
+  useEffect(()=>{if(!open)return;const close=(event:MouseEvent)=>{if(ref.current&&!ref.current.contains(event.target as Node))setOpen(false)};document.addEventListener('mousedown',close);return()=>document.removeEventListener('mousedown',close);},[open]);
+  const openNotification=(notification:any)=>{if(!notification.read)read.mutate(notification.id);setTab(notificationTargetTab(notification));setOpen(false);};
+  return <div ref={ref} className="admin-bell-wrap">
+    <button type="button" className={'admin-bell '+(summary.total?'has-count':'')} onClick={()=>setOpen(value=>!value)} aria-label="Abrir notificaciones">
+      <Bell size={18}/>{summary.total>0&&<span>{summary.total>99?'99+':summary.total}</span>}
+    </button>
+    {open&&<div className="admin-bell-panel">
+      <div className="mb-3 flex items-start justify-between gap-3">
+        <div><p className="text-xs font-black uppercase tracking-[.18em] text-orange-400">Centro de avisos</p><h3 className="text-lg font-black">Notificaciones</h3></div>
+        <button type="button" className="admin-tiny-action" onClick={()=>readAll.mutate()} disabled={!summary.total}>Leer todo</button>
+      </div>
+      <div className="mb-3 grid grid-cols-3 gap-2">
+        <span className="admin-bell-stat"><b>{summary.total||0}</b><small>sin leer</small></span>
+        <span className="admin-bell-stat"><b>{summary.byPriority?.HIGH||0}</b><small>alta</small></span>
+        <span className="admin-bell-stat"><b>{summary.byType?.SUPPORT||0}</b><small>ayuda</small></span>
+      </div>
+      <div className="max-h-[380px] space-y-2 overflow-auto pr-1">
+        {items.slice(0,8).map((notification:any)=><button key={notification.id} type="button" className={'admin-bell-item '+(notification.read?'is-read':'is-unread')} onClick={()=>openNotification(notification)}>
+          <span className={'admin-priority-dot '+(notificationPriorityClass[notification.priority]||'is-normal')}/>
+          <span className="min-w-0 flex-1"><b>{notification.title}</b><small>{notificationTypeLabels[notification.type]||notification.type} · {notificationPriorityLabels[notification.priority]||notification.priority}</small><em>{notification.body}</em></span>
+        </button>)}
+        {!items.length&&<div className="admin-bell-empty"><Inbox size={20}/><span>No hay avisos todavía.</span></div>}
+      </div>
+    </div>}
+  </div>
+}
+
+function SystemHealthPanel(){
+  const {data,isLoading,error}=useQuery({queryKey:['admin-system-health'],queryFn:async()=>{const res=await fetch(API_URL+'/health',{cache:'no-store'});if(!res.ok)throw new Error('health failed');return res.json();},refetchInterval:60000,retry:false});
+  const apiOk=Boolean(data?.ok)&&!error;
+  const mailOk=data?.mail==='configured';
+  const cards=[
+    {label:'API',ok:apiOk,detail:apiOk?'Servicio activo':'No responde'},
+    {label:'Base de datos',ok:data?.database==='ok',detail:data?.database==='ok'?'Conectada':'Revisar conexión'},
+    {label:'Correo SMTP',ok:mailOk,detail:mailOk?'Configurado':'Pendiente'},
+  ];
+  return <Panel title="Salud del sistema" action={<span className={'admin-health-pill '+(apiOk?'is-ok':'is-bad')}>{isLoading?'Revisando':apiOk?'Operativo':'Atención'}</span>}>
+    <div className="grid gap-3 md:grid-cols-3">{cards.map(card=><div key={card.label} className={'admin-health-card '+(card.ok?'is-ok':'is-bad')}>{card.ok?<CheckCircle2 size={18}/>:<XCircle size={18}/>}<div><b>{card.label}</b><p>{card.detail}</p></div></div>)}</div>
+    <p className="admin-muted mt-4 text-xs">API configurada: {API_URL}</p>
+  </Panel>
+}
+
+function UrgentTasksPanel({data,setTab}:any){
+  const tasks=[
+    {level:data.pendingOrders>0?'critical':'info',title:'Pedidos por atender',body:data.pendingOrders>0?`${data.pendingOrders} pedido(s) necesitan revisión.`:'No hay pedidos urgentes ahora.',tab:'orders',count:data.pendingOrders||0},
+    {level:data.lowStock>0?'warning':'info',title:'Inventario bajo',body:data.lowStock>0?`${data.lowStock} producto(s) están cerca de agotarse.`:'Inventario sin alertas críticas.',tab:'products',count:data.lowStock||0},
+    {level:data.notifications?.length?'warning':'info',title:'Avisos sin leer',body:data.notifications?.length?`${data.notifications.length} aviso(s) recientes sin leer.`:'Bandeja operativa tranquila.',tab:'notifications',count:data.notifications?.length||0},
+    {level:data.activeDrops>0?'info':'warning',title:'Drops activos',body:data.activeDrops>0?`${data.activeDrops} drop(s) activos.`:'No hay drop activo configurado.',tab:'drops',count:data.activeDrops||0},
+  ];
+  return <Panel title="Prioridades de hoy">
+    <div className="grid gap-3 md:grid-cols-2">{tasks.map(task=><button key={task.title} type="button" onClick={()=>setTab(task.tab)} className={'admin-task-card '+urgentTaskClass(task.level)}><span>{task.level==='critical'?<AlertTriangle size={19}/>:task.level==='warning'?<Bell size={19}/>:<CheckCircle2 size={19}/>}</span><div><b>{task.title}</b><p>{task.body}</p></div><em>{task.count}</em></button>)}</div>
+  </Panel>
+}
 function Shell({children,tab,setTab}:{children:ReactNode;tab:Tab;setTab:(t:Tab)=>void}){
   const {user,logout}=useAuth();
   const [theme,setTheme]=useState<'dark'|'light'>('dark');
@@ -117,7 +195,7 @@ function Shell({children,tab,setTab}:{children:ReactNode;tab:Tab;setTab:(t:Tab)=
   const countForTab=(item:any)=>item.key==='notifications'?(summary.total||0):(summary.bySection?.[item.permission]||0);
   return <div className={'admin-shell admin-'+theme}>
     <aside className="admin-sidebar fixed left-0 top-0 z-30 hidden h-screen w-[290px] p-5 lg:block"><div className="mb-8 flex items-center gap-3"><div className="grid h-12 w-12 place-items-center rounded-2xl bg-orange-500 text-black"><Flame/></div><div><p className="text-xl font-black tracking-[.12em]">MAGMA</p><p className="admin-muted text-xs uppercase tracking-[.22em]">Panel de control</p></div></div><div className="admin-session-card mb-5 rounded-3xl p-4"><p className="text-xs uppercase tracking-[.18em] text-orange-400">Sesión</p><p className="font-bold">{user?.name}</p><p className="admin-muted truncate text-xs">{user?.email}</p></div><nav className="max-h-[70vh] space-y-1 overflow-auto pr-1">{visible.map(t=>{const count=countForTab(t);return <button key={t.key} onClick={()=>setTab(t.key)} className={'admin-nav-item '+(tab===t.key?'is-active':'')}><span className="flex items-center gap-3">{t.icon}{t.label}</span>{count>0&&<span className="admin-nav-badge">{count}</span>}</button>})}</nav><button onClick={logout} className="admin-logout absolute bottom-5 left-5 right-5 rounded-2xl px-4 py-3 text-sm"><LogOut size={16} className="mr-2 inline"/>Cerrar sesión</button></aside>
-    <main className="lg:ml-[290px]"><header className="admin-topbar sticky top-0 z-20 flex flex-wrap items-center justify-between gap-4 px-5 py-4 backdrop-blur-xl"><div><p className="text-xs font-bold uppercase tracking-[.24em] text-orange-400">Magma Blaze</p><h1 className="text-3xl font-black">Panel administrativo</h1></div><div className="flex flex-wrap items-center gap-3"><button type="button" onClick={()=>setTheme(theme==='dark'?'light':'dark')} className="admin-theme-toggle">{theme==='dark'?<Sun size={17}/>:<Moon size={17}/>}<span>{theme==='dark'?'Modo claro':'Modo oscuro'}</span></button><a href="/" target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 rounded-full border border-orange-400/40 bg-orange-500 px-5 py-3 text-sm font-black uppercase tracking-[.12em] text-black shadow-[0_0_24px_rgba(249,115,22,.25)] transition hover:-translate-y-0.5 hover:bg-orange-400"><ShoppingBag size={16}/> Entrar a la tienda</a></div></header><div className="p-5 lg:p-8">{children}</div></main>
+    <main className="lg:ml-[290px]"><header className="admin-topbar sticky top-0 z-20 flex flex-wrap items-center justify-between gap-4 px-5 py-4 backdrop-blur-xl"><div><p className="text-xs font-bold uppercase tracking-[.24em] text-orange-400">Magma Blaze</p><h1 className="text-3xl font-black">Panel administrativo</h1></div><div className="flex flex-wrap items-center gap-3"><AdminNotificationBell setTab={setTab}/><button type="button" onClick={()=>setTheme(theme==='dark'?'light':'dark')} className="admin-theme-toggle">{theme==='dark'?<Sun size={17}/>:<Moon size={17}/>}<span>{theme==='dark'?'Modo claro':'Modo oscuro'}</span></button><a href="/" target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 rounded-full border border-orange-400/40 bg-orange-500 px-5 py-3 text-sm font-black uppercase tracking-[.12em] text-black shadow-[0_0_24px_rgba(249,115,22,.25)] transition hover:-translate-y-0.5 hover:bg-orange-400"><ShoppingBag size={16}/> Entrar a la tienda</a></div></header><div className="p-5 lg:p-8">{children}</div></main>
   </div>
 }
 function Overview({data}:any){return <div className="space-y-6"><div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4"><Stat title="Ingresos" value={money(data.revenue)} detail="Ventas registradas"/><Stat title="Pedidos 24h" value={data.ordersLast24} detail="Órdenes recientes"/><Stat title="Productos" value={data.products} detail={(data.lowStock||0)+' con stock bajo'}/><Stat title="Margen" value={(data.finance?.margin||0)+'%'} detail={money(data.finance?.totalProfit||0)+' ganancia estimada'}/></div><div className="grid gap-6 xl:grid-cols-[1fr_.95fr]"><Panel title="Órdenes de las últimas 24 horas">{data.recentOrders?.length?data.recentOrders.map((o:any)=><div key={o.id} className="admin-list-row flex justify-between py-3"><div><b>{o.user?.name}</b><p className="admin-muted text-sm">{statusLabels[o.status]||o.status} · {o.country} · {new Date(o.createdAt).toLocaleString('es-DO')}</p></div><span>{money(o.total,o.currency==='USD'?'US$':'RD$')}</span></div>):<Empty text="No hay pedidos en las últimas 24 horas."/>}</Panel><NotificationDashboardPanel/></div><div className="grid gap-6 xl:grid-cols-2"><Panel title="Gráfico circular de operación"><Donut items={[{label:'Pedidos',value:data.orders||0,color:'#fb923c'},{label:'Usuarios',value:data.users||0,color:'#facc15'},{label:'Productos',value:data.products||0,color:'#ef4444'},{label:'Drops activos',value:data.activeDrops||0,color:'#a855f7'}]}/></Panel><Panel title="Recomendaciones inteligentes">{data.aiRecommendations?.length?data.aiRecommendations.map((r:string,i:number)=><div key={i} className="admin-recommendation mb-3 rounded-2xl p-4 text-sm">{r}</div>):<Empty text="Aún no hay suficientes datos para recomendaciones profundas."/>}</Panel></div></div>}
@@ -147,6 +225,39 @@ function InventoryTab(){
 }
 function OrderTimeline({events=[]}:{events:any[]}){return <div className="mt-4 rounded-2xl border border-white/10 bg-black/25 p-4"><p className="mb-3 text-xs font-bold uppercase tracking-[.16em] text-white/45">Historial del pedido</p>{events.length?events.map(event=><div key={event.id} className="relative border-l border-orange-400/30 pb-4 pl-4 last:pb-0"><span className="absolute -left-[5px] top-1 h-2.5 w-2.5 rounded-full bg-orange-400"/><b className="text-sm">{event.title}</b><p className="text-xs text-white/45">{event.body||event.type} · {event.actor?.name||'Sistema'} · {new Date(event.createdAt).toLocaleString('es-DO')}</p></div>):<p className="text-sm text-white/45">Aún no hay movimientos registrados.</p>}</div>}
 
+const orderSectionTabs=[
+  {status:'',label:'Todos',icon:<Inbox size={16}/>,tone:'neutral'},
+  {status:'PENDING',label:'Pendientes',icon:<Wallet size={16}/>,tone:'warning'},
+  {status:'PROCESSING',label:'Procesando',icon:<Activity size={16}/>,tone:'blue'},
+  {status:'PACKED',label:'Empaquetados',icon:<Boxes size={16}/>,tone:'orange'},
+  {status:'SHIPPED',label:'Enviados',icon:<Truck size={16}/>,tone:'purple'},
+  {status:'DELIVERED',label:'Entregados',icon:<CheckCircle2 size={16}/>,tone:'green'},
+  {status:'CANCELLED',label:'Cancelados',icon:<XCircle size={16}/>,tone:'red'},
+];
+function OrderSectionTabs({status,setStatus}:{status:string;setStatus:(value:string)=>void}){return <div className="admin-order-section-tabs mb-6">{orderSectionTabs.map(item=><button key={item.status||'all'} type="button" onClick={()=>setStatus(item.status)} className={'admin-order-section-tab '+(status===item.status?'is-active ':'')+'is-'+item.tone}>{item.icon}<span>{item.label}</span></button>)}</div>}
+function OrderActionButton({tone,icon,label,description,onClick,disabled=false}:{tone:string;icon:ReactNode;label:string;description?:string;onClick:()=>void;disabled?:boolean}){return <button type="button" disabled={disabled} className={'admin-order-action is-'+tone} onClick={onClick}><span>{icon}</span><b>{label}</b>{description&&<small>{description}</small>}</button>}
+function OrderActionPanel({order,update,confirmSale,cancelSale,open,needsSaleConfirmation}:any){
+  const status=order.status;
+  const setStatus=(next:string)=>update.mutate({id:order.id,payload:{status:next}});
+  if(status==='DELIVERED')return <div className="admin-order-final-card is-delivered mt-4">
+    <div><CheckCircle2 size={21}/><b>Pedido entregado</b><p>El flujo esta cerrado. Si el cliente lo devuelve, registra la devolucion para dejar historial e inventario correctos.</p></div>
+    <div className="admin-order-final-actions"><OrderActionButton tone="danger" icon={<RotateCcw size={17}/>} label="Pedido devuelto" description="Registra devolucion y devuelve inventario" onClick={()=>cancelSale.mutate({id:order.id,returned:true})}/></div>
+  </div>;
+  if(status==='CANCELLED')return <div className="admin-order-final-card is-cancelled mt-4"><div><XCircle size={21}/><b>Pedido cancelado</b><p>Este pedido ya no tiene acciones de fulfillment. El historial queda disponible para auditoria.</p></div></div>;
+  return <div className="admin-order-actions mt-4">
+    {needsSaleConfirmation&&<OrderActionButton tone="success" icon={<CheckCircle2 size={17}/>} label="Confirmar venta/pago" description="Descuenta inventario" onClick={()=>confirmSale.mutate(order.id)}/>}
+    <OrderActionButton tone="neutral" icon={<FileText size={17}/>} label="Gestionar detalles" description="Envio, chofer, factura" onClick={()=>open(order)}/>
+    {!needsSaleConfirmation&&['PENDING','AWAITING_SHIPPING_CONFIRMATION','AWAITING_CUSTOMER_APPROVAL'].includes(status)&&<OrderActionButton tone="blue" icon={<Activity size={17}/>} label="Mover a procesamiento" description="Venta lista para preparar" onClick={()=>setStatus('PROCESSING')}/>}
+    {!needsSaleConfirmation&&status==='PROCESSING'&&<OrderActionButton tone="orange" icon={<Boxes size={17}/>} label="Marcar empaquetado" description="Producto preparado" onClick={()=>setStatus('PACKED')}/>}
+    {!needsSaleConfirmation&&status==='PACKED'&&<OrderActionButton tone="purple" icon={<Truck size={17}/>} label="Marcar enviado" description="Sale a entrega" onClick={()=>setStatus('SHIPPED')}/>}
+    {!needsSaleConfirmation&&status==='PACKED'&&<OrderActionButton tone="neutral" icon={<Activity size={17}/>} label="Regresar a procesamiento" description="Reabrir preparacion" onClick={()=>setStatus('PROCESSING')}/>}
+    {!needsSaleConfirmation&&status==='SHIPPED'&&<OrderActionButton tone="success" icon={<CheckCircle2 size={17}/>} label="Marcar entregado" description="Cierra fulfillment" onClick={()=>setStatus('DELIVERED')}/>}
+    {!needsSaleConfirmation&&status==='SHIPPED'&&<OrderActionButton tone="warning" icon={<Boxes size={17}/>} label="Regresar a empaquetado" description="Correccion de envio" onClick={()=>setStatus('PACKED')}/>}
+    {status!=='DELIVERED'&&<OrderActionButton tone="danger" icon={<XCircle size={17}/>} label="Cancelar venta" description={order.inventoryCommitted?'Devuelve inventario':'Sin descontar stock'} onClick={()=>cancelSale.mutate(order.id)}/>}
+    {!needsSaleConfirmation&&<OrderActionButton tone="warning" icon={<Truck size={17}/>} label="Enviar tarifa" description="Solicita aprobacion del cliente" onClick={()=>update.mutate({id:order.id,payload:{shipping:order.shipping}})}/>}
+  </div>
+}
+
 function OrdersTabFull(){
   const qc=useQueryClient();
   const [q,setQ]=useState('');
@@ -158,18 +269,19 @@ function OrdersTabFull(){
   const update=useMutation({mutationFn:({id,payload}:any)=>api('/admin/orders/'+id,{method:'PATCH',body:JSON.stringify(payload)}),onSuccess:()=>{refresh();toast.success('Pedido actualizado');setEditing(null)},onError:(e:any)=>toast.error(e.message)});
   const invoice=useMutation({mutationFn:(id:string)=>api('/admin/orders/'+id+'/invoice',{method:'POST',body:JSON.stringify({})}),onSuccess:()=>{refresh();toast.success('Factura PDF generada')}});
   const confirmSale=useMutation({mutationFn:(id:string)=>api('/admin/orders/'+id+'/confirm-sale',{method:'POST',body:JSON.stringify({})}),onSuccess:()=>{refresh();toast.success('Venta confirmada e inventario descontado')},onError:(e:any)=>toast.error(e.message)});
-  const cancelSale=useMutation({mutationFn:(id:string)=>api('/admin/orders/'+id+'/cancel-sale',{method:'POST',body:JSON.stringify({})}),onSuccess:()=>{refresh();toast.success('Venta cancelada')},onError:(e:any)=>toast.error(e.message)});
+  const cancelSale=useMutation({mutationFn:(request:any)=>{const payload=typeof request==='string'?{id:request,returned:false}:request;return api('/admin/orders/'+payload.id+'/cancel-sale',{method:'POST',body:JSON.stringify({action:payload.returned?'RETURNED':'CANCELLED'})})},onSuccess:(_:any,request:any)=>{refresh();toast.success(typeof request==='object'&&request.returned?'Pedido marcado como devuelto':'Venta cancelada')},onError:(e:any)=>toast.error(e.message)});
   function saveDraft(){if(!editing)return;const payload:any={status:editing.status,packageNote:editing.packageNote||null,deliveryPlace:editing.deliveryPlace||null,driverName:editing.driverName||null,driverPhone:editing.driverPhone||null,shippingReference:editing.shippingReference||null,shippingInvoiceUrl:editing.shippingInvoiceUrl||null,adminNote:editing.adminNote||null};if(Number(editing.shipping||0)!==Number(editing._originalShipping||0))payload.shipping=Number(editing.shipping||0);update.mutate({id:editing.id,payload});}
   const needsSaleConfirmation=(o:any)=>o.status!=='CANCELLED'&&!o.inventoryCommitted&&['AWAITING_ADMIN_CONFIRMATION','UNCONFIRMED',null,undefined].includes(o.confirmationStatus);
   return <div>
     <Toolbar title="Pedidos y fulfillment" subtitle="Confirma pagos antes de descontar inventario. Luego gestiona envío, factura y entrega." search={q} setSearch={setQ}>
       <Field label="Estado"><AdminSelect className="min-w-[240px]" value={status} onChange={setStatus} options={[{value:'',label:'Todos los estados'},...orderStatuses.map(s=>({value:s,label:statusLabels[s]}))]}/></Field>
     </Toolbar>
+    <OrderSectionTabs status={status} setStatus={setStatus}/>
     {editing&&<Panel title={'Gestionar pedido · '+editing.id.slice(0,8)}>
       <div className="grid gap-4 md:grid-cols-3"><Field label="Estado del pedido"><AdminSelect value={editing.status} onChange={value=>setEditing({...editing,status:value})} options={orderStatuses.map(s=>({value:s,label:statusLabels[s]}))}/></Field><Field label="Precio de envío"><input type="number" className="input-dark" value={editing.shipping||0} onChange={e=>setEditing({...editing,shipping:Number(e.target.value)})}/></Field><Field label="Tracking / referencia"><input className="input-dark" value={editing.shippingReference||''} onChange={e=>setEditing({...editing,shippingReference:e.target.value})}/></Field><Field label="Chofer"><input className="input-dark" value={editing.driverName||''} onChange={e=>setEditing({...editing,driverName:e.target.value})}/></Field><Field label="WhatsApp chofer"><input className="input-dark" value={editing.driverPhone||''} onChange={e=>setEditing({...editing,driverPhone:e.target.value})}/></Field><Field label="Parada o lugar de entrega"><input className="input-dark" value={editing.deliveryPlace||''} onChange={e=>setEditing({...editing,deliveryPlace:e.target.value})}/></Field><Field label="Factura subida"><input type="file" accept="image/*,.pdf" className="input-dark" onChange={async e=>{const file=e.target.files?.[0];if(file)setEditing({...editing,shippingInvoiceUrl:await readFile(file)})}}/></Field><Field label="Nota de empaque"><input className="input-dark" value={editing.packageNote||''} onChange={e=>setEditing({...editing,packageNote:e.target.value})}/></Field><Field label="Nota interna"><input className="input-dark" value={editing.adminNote||''} onChange={e=>setEditing({...editing,adminNote:e.target.value})}/></Field><button className="btn-ember justify-center" onClick={saveDraft}>Guardar cambios</button><button className="btn-ghost justify-center" onClick={()=>invoice.mutate(editing.id)}>Generar PDF</button><button className="btn-ghost justify-center" onClick={()=>setEditing(null)}>Cancelar</button></div>
       <p className="mt-3 text-xs text-white/45">La tarifa de envío solo se vuelve a enviar al cliente si cambias el monto.</p>
     </Panel>}
-    <div className="mt-6 space-y-4">{data.map((o:any)=><div key={o.id} className="rounded-3xl border border-white/10 bg-white/[.03] p-5"><div className="flex flex-wrap justify-between gap-4"><div><b>{o.user?.name||'Cliente'}</b><p className="text-sm text-white/45">{o.user?.email} · {new Date(o.createdAt).toLocaleString('es-DO')}</p><p className="mt-2 text-sm text-orange-100">{statusLabels[o.status]||o.status} · {o.shippingStatus}</p><div className="mt-3 flex flex-wrap gap-2 text-xs"><span className={(o.inventoryCommitted?'bg-green-500/15 text-green-100':'bg-yellow-500/15 text-yellow-100')+' rounded-full px-3 py-1'}>{o.inventoryCommitted?'Inventario descontado':'Pendiente de confirmar venta'}</span><span className="rounded-full bg-white/10 px-3 py-1 text-white/55">{o.paymentStatus||'Sin pago'}</span><span className="rounded-full bg-white/10 px-3 py-1 text-white/55">{o.salesChannel||'WEB'}</span></div></div><div className="text-left md:text-right"><p className="text-2xl font-black">{money(o.total,o.currency==='USD'?'US$':'RD$')}</p><p className="text-xs text-white/45">Envío {money(o.shipping,o.currency==='USD'?'US$':'RD$')}</p><p className="text-xs text-white/35">{o.items?.length||0} líneas · {o.country}</p></div></div><div className="mt-4 grid gap-2 text-center text-xs md:grid-cols-4"><span className={'rounded-full py-2 '+(['PROCESSING','PACKED','SHIPPED','DELIVERED'].includes(o.status)?'bg-orange-500/20':'bg-white/10')}>Procesando</span><span className={'rounded-full py-2 '+(['PACKED','SHIPPED','DELIVERED'].includes(o.status)?'bg-orange-500/20':'bg-white/10')}>Empaquetado</span><span className={'rounded-full py-2 '+(['SHIPPED','DELIVERED'].includes(o.status)?'bg-orange-500/20':'bg-white/10')}>Enviado</span><span className={'rounded-full py-2 '+(o.status==='DELIVERED'?'bg-green-500/20':'bg-white/10')}>Entregado</span></div><div className="mt-4 grid gap-2 md:grid-cols-2 xl:grid-cols-4">{o.items?.map((item:any)=><div key={item.id} className="flex items-center gap-3 rounded-2xl bg-black/25 p-3"><img src={item.product?.imageUrl} className="h-12 w-12 rounded-xl object-cover"/><div><p className="text-sm font-bold">{item.product?.name}</p>{item.variant&&<p className="text-xs text-orange-100">{item.variant.name}</p>}<p className="text-xs text-white/45">{item.quantity} uds · {money(item.price,o.currency==='USD'?'US$':'RD$')}</p></div></div>)}</div><OrderTimeline events={o.events||[]}/><div className="mt-4 flex flex-wrap gap-2">{needsSaleConfirmation(o)&&<button className="rounded-full bg-green-500/15 px-4 py-2 text-sm text-green-100" onClick={()=>confirmSale.mutate(o.id)}>Confirmar venta/pago</button>}{o.status!=='CANCELLED'&&<button className="rounded-full bg-red-500/10 px-4 py-2 text-sm text-red-200" onClick={()=>cancelSale.mutate(o.id)}>Cancelar venta</button>}<button className="rounded-full bg-white/10 px-4 py-2 text-sm" onClick={()=>open(o)}>Gestionar</button><button className="rounded-full bg-orange-500/15 px-4 py-2 text-sm text-orange-100" onClick={()=>update.mutate({id:o.id,payload:{shipping:o.shipping}})}>Enviar confirmación tarifa</button><button className="rounded-full bg-white/10 px-4 py-2 text-sm" onClick={()=>update.mutate({id:o.id,payload:{status:'PACKED'}})}>Marcar empaquetado</button><button className="rounded-full bg-white/10 px-4 py-2 text-sm" onClick={()=>update.mutate({id:o.id,payload:{status:'SHIPPED'}})}>Marcar enviado</button><button className="rounded-full bg-white/10 px-4 py-2 text-sm" onClick={()=>update.mutate({id:o.id,payload:{status:'DELIVERED'}})}>Marcar entregado</button></div></div>)}{!data.length&&<Empty text="Todavía no hay pedidos con esos filtros."/>}</div>
+    <div className="mt-6 space-y-4">{data.map((o:any)=><div key={o.id} className="rounded-3xl border border-white/10 bg-white/[.03] p-5"><div className="flex flex-wrap justify-between gap-4"><div><b>{o.user?.name||'Cliente'}</b><p className="text-sm text-white/45">{o.user?.email} · {new Date(o.createdAt).toLocaleString('es-DO')}</p><p className="mt-2 text-sm text-orange-100">{statusLabels[o.status]||o.status} · {o.shippingStatus}</p><div className="mt-3 flex flex-wrap gap-2 text-xs"><span className={(o.inventoryCommitted?'bg-green-500/15 text-green-100':'bg-yellow-500/15 text-yellow-100')+' rounded-full px-3 py-1'}>{o.inventoryCommitted?'Inventario descontado':'Pendiente de confirmar venta'}</span><span className="rounded-full bg-white/10 px-3 py-1 text-white/55">{o.paymentStatus||'Sin pago'}</span><span className="rounded-full bg-white/10 px-3 py-1 text-white/55">{o.salesChannel||'WEB'}</span></div></div><div className="text-left md:text-right"><p className="text-2xl font-black">{money(o.total,o.currency==='USD'?'US$':'RD$')}</p><p className="text-xs text-white/45">Envío {money(o.shipping,o.currency==='USD'?'US$':'RD$')}</p><p className="text-xs text-white/35">{o.items?.length||0} líneas · {o.country}</p></div></div><div className="mt-4 grid gap-2 text-center text-xs md:grid-cols-4"><span className={'rounded-full py-2 '+(['PROCESSING','PACKED','SHIPPED','DELIVERED'].includes(o.status)?'bg-orange-500/20':'bg-white/10')}>Procesando</span><span className={'rounded-full py-2 '+(['PACKED','SHIPPED','DELIVERED'].includes(o.status)?'bg-orange-500/20':'bg-white/10')}>Empaquetado</span><span className={'rounded-full py-2 '+(['SHIPPED','DELIVERED'].includes(o.status)?'bg-orange-500/20':'bg-white/10')}>Enviado</span><span className={'rounded-full py-2 '+(o.status==='DELIVERED'?'bg-green-500/20':'bg-white/10')}>Entregado</span></div><div className="mt-4 grid gap-2 md:grid-cols-2 xl:grid-cols-4">{o.items?.map((item:any)=><div key={item.id} className="flex items-center gap-3 rounded-2xl bg-black/25 p-3"><img src={item.product?.imageUrl} className="h-12 w-12 rounded-xl object-cover"/><div><p className="text-sm font-bold">{item.product?.name}</p>{item.variant&&<p className="text-xs text-orange-100">{item.variant.name}</p>}<p className="text-xs text-white/45">{item.quantity} uds · {money(item.price,o.currency==='USD'?'US$':'RD$')}</p></div></div>)}</div><OrderTimeline events={o.events||[]}/><OrderActionPanel order={o} update={update} confirmSale={confirmSale} cancelSale={cancelSale} open={open} needsSaleConfirmation={needsSaleConfirmation(o)}/><div className="mt-4 hidden flex-wrap gap-2">{needsSaleConfirmation(o)&&<button className="rounded-full bg-green-500/15 px-4 py-2 text-sm text-green-100" onClick={()=>confirmSale.mutate(o.id)}>Confirmar venta/pago</button>}{o.status!=='CANCELLED'&&<button className="rounded-full bg-red-500/10 px-4 py-2 text-sm text-red-200" onClick={()=>cancelSale.mutate(o.id)}>Cancelar venta</button>}<button className="rounded-full bg-white/10 px-4 py-2 text-sm" onClick={()=>open(o)}>Gestionar</button><button className="rounded-full bg-orange-500/15 px-4 py-2 text-sm text-orange-100" onClick={()=>update.mutate({id:o.id,payload:{shipping:o.shipping}})}>Enviar confirmación tarifa</button><button className="rounded-full bg-white/10 px-4 py-2 text-sm" onClick={()=>update.mutate({id:o.id,payload:{status:'PACKED'}})}>Marcar empaquetado</button><button className="rounded-full bg-white/10 px-4 py-2 text-sm" onClick={()=>update.mutate({id:o.id,payload:{status:'SHIPPED'}})}>Marcar enviado</button><button className="rounded-full bg-white/10 px-4 py-2 text-sm" onClick={()=>update.mutate({id:o.id,payload:{status:'DELIVERED'}})}>Marcar entregado</button></div></div>)}{!data.length&&<Empty text="Todavía no hay pedidos con esos filtros."/>}</div>
   </div>
 }
 
@@ -678,6 +790,107 @@ function NotificationsTab(){
 }
 function SecurityTab(){const qc=useQueryClient();const {data=[]}=useQuery({queryKey:['admin-logs'],queryFn:()=>api<any[]>('/admin/logs')});const {data:bans=[]}=useQuery({queryKey:['admin-security-bans'],queryFn:()=>api<any[]>('/admin/security-bans')});const unban=useMutation({mutationFn:(id:string)=>api('/admin/security-bans/'+id+'/unban',{method:'POST',body:JSON.stringify({})}),onSuccess:()=>{qc.invalidateQueries({queryKey:['admin-security-bans']});qc.invalidateQueries({queryKey:['admin-logs']});toast.success('IP desbloqueada')}});return <div className="space-y-6"><Panel title="IPs bloqueadas por la trampa /admin">{bans.map((b:any)=><div key={b.id} className={`mb-3 flex flex-wrap items-center justify-between gap-3 rounded-2xl border p-4 ${b.banned?'border-red-400/30 bg-red-500/10':'border-white/10 bg-black/25'}`}><div><b>{b.ip}</b><p className="text-sm text-white/45">{b.hits} intentos · {b.reason||'Sin bloqueo'} · {b.userAgent||'Sin navegador'}</p><p className="text-xs text-white/35">Última ruta: {b.lastPath||'/admin'} · hasta {b.bannedUntil?new Date(b.bannedUntil).toLocaleString('es-DO'):'sin fecha'}</p></div>{b.banned&&<button className="rounded-full bg-white/10 px-4 py-2 text-sm" onClick={()=>unban.mutate(b.id)}>Desbloquear</button>}</div>)}{!bans.length&&<Empty text="No hay IPs registradas por la trampa."/>}</Panel><Panel title="Auditoría y seguridad">{data.map((l:any)=><div key={l.id} className="border-b border-white/10 py-3"><b>{l.action}</b><p className="text-sm text-white/45">{l.user?.email||'Sistema'} · {new Date(l.createdAt).toLocaleString('es-DO')} · {l.ip||'local'}</p></div>)}{!data.length&&<Empty text="No hay logs todavía."/>}</Panel></div>}
 
+const auditTypeOptions=[
+  {value:'',label:'Todos los tipos'},
+  {value:'AUTH',label:'Autenticacion'},
+  {value:'USER',label:'Usuarios'},
+  {value:'ROLE',label:'Roles'},
+  {value:'PRODUCT',label:'Productos'},
+  {value:'PRODUCT_VARIANT',label:'Opciones'},
+  {value:'CATEGORY',label:'Categorias'},
+  {value:'ORDER',label:'Pedidos'},
+  {value:'MANUAL_SALE',label:'Ventas manuales'},
+  {value:'INVENTORY',label:'Inventario'},
+  {value:'COUPON',label:'Cupones'},
+  {value:'DROP',label:'Drops'},
+  {value:'MODEL',label:'Modelos'},
+  {value:'CONTENT',label:'Contenido'},
+  {value:'TICKET',label:'Ayuda'},
+  {value:'NOTIFICATION',label:'Notificaciones'},
+  {value:'SECURITY',label:'Seguridad'},
+  {value:'SETTING',label:'Configuracion'},
+];
+const listSizeOptions=[10,20,50,100,200].map(value=>({value:String(value),label:String(value)}));
+function auditTypeFor(action:string){
+  const match=auditTypeOptions.filter(item=>item.value).find(item=>action.startsWith(item.value));
+  return match?.label||'Sistema';
+}
+function auditToneFor(action:string){
+  if(action.includes('DELETED')||action.includes('CANCELLED')||action.includes('BANNED'))return 'danger';
+  if(action.includes('RETURNED')||action.includes('UNBANNED')||action.includes('DISABLED'))return 'warning';
+  if(action.includes('CREATED')||action.includes('CONFIRMED'))return 'success';
+  if(action.includes('UPDATED')||action.includes('ADJUSTED'))return 'info';
+  return 'neutral';
+}
+function SecurityTabV2(){
+  const qc=useQueryClient();
+  const [q,setQ]=useState('');
+  const [type,setType]=useState('');
+  const [auditTake,setAuditTake]=useState('20');
+  const [banTake,setBanTake]=useState('20');
+  const {data=[]}=useQuery({queryKey:['admin-logs',q,type,auditTake],queryFn:()=>api<any[]>('/admin/logs?q='+encodeURIComponent(q)+'&type='+encodeURIComponent(type)+'&take='+encodeURIComponent(auditTake))});
+  const {data:bans=[]}=useQuery({queryKey:['admin-security-bans',banTake],queryFn:()=>api<any[]>('/admin/security-bans?take='+encodeURIComponent(banTake))});
+  const unban=useMutation({mutationFn:(id:string)=>api('/admin/security-bans/'+id+'/unban',{method:'POST',body:JSON.stringify({})}),onSuccess:()=>{qc.invalidateQueries({queryKey:['admin-security-bans']});qc.invalidateQueries({queryKey:['admin-logs']});toast.success('IP desbloqueada')}});
+  return <div className="space-y-6">
+    <Panel title="IPs bloqueadas por la trampa /admin" action={<Field label="Mostrar"><AdminSelect className="min-w-[120px]" value={banTake} onChange={setBanTake} options={listSizeOptions}/></Field>}>
+      {bans.map((b:any)=><div key={b.id} className={`mb-3 flex flex-wrap items-center justify-between gap-3 rounded-2xl border p-4 ${b.banned?'border-red-400/30 bg-red-500/10':'border-white/10 bg-black/25'}`}><div><b>{b.ip}</b><p className="text-sm text-white/45">{b.hits} intentos · {b.reason||'Sin bloqueo'} · {b.userAgent||'Sin navegador'}</p><p className="text-xs text-white/35">Última ruta: {b.lastPath||'/admin'} · hasta {b.bannedUntil?new Date(b.bannedUntil).toLocaleString('es-DO'):'sin fecha'}</p></div>{b.banned&&<button className="rounded-full bg-white/10 px-4 py-2 text-sm" onClick={()=>unban.mutate(b.id)}>Desbloquear</button>}</div>)}
+      {!bans.length&&<Empty text="No hay IPs registradas por la trampa."/>}
+    </Panel>
+    <Toolbar title="Auditoria y seguridad" subtitle="Busca por accion, usuario, correo o IP; filtra por tipo para revisar rapido." search={q} setSearch={setQ}>
+      <Field label="Tipo"><AdminSelect className="min-w-[240px]" value={type} onChange={setType} options={auditTypeOptions}/></Field>
+      <Field label="Mostrar"><AdminSelect className="min-w-[120px]" value={auditTake} onChange={setAuditTake} options={listSizeOptions}/></Field>
+    </Toolbar>
+    <Panel title="Registro de auditoria" action={<span className="admin-count-pill"><ShieldCheck size={15}/>{data.length} / {auditTake}</span>}>
+      <div className="grid gap-3">{data.map((log:any)=><div key={log.id} className={'admin-audit-row is-'+auditToneFor(log.action)}>
+        <span className="admin-audit-icon">{auditToneFor(log.action)==='danger'?<XCircle size={17}/>:auditToneFor(log.action)==='success'?<CheckCircle2 size={17}/>:auditToneFor(log.action)==='warning'?<AlertTriangle size={17}/>:<ShieldCheck size={17}/>}</span>
+        <div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><b>{log.action}</b><em>{auditTypeFor(log.action)}</em></div><p>{log.user?.email||log.user?.name||'Sistema'} · {new Date(log.createdAt).toLocaleString('es-DO')} · {log.ip||'local'}</p></div>
+      </div>)}</div>
+      {!data.length&&<Empty text="No hay logs con esos filtros."/>}
+    </Panel>
+  </div>
+}
+
+
+function OverviewEnhanced({data,setTab}:any){
+  const finance=data.finance||{};
+  const recentOrders=Array.isArray(data.recentOrders)?data.recentOrders.slice(0,6):[];
+  const quickActions=[
+    {label:'Registrar venta',tab:'sales',icon:<Wallet size={18}/>,detail:'Ventas fisicas, WhatsApp o transferencia'},
+    {label:'Crear producto',tab:'products',icon:<Plus size={18}/>,detail:'Inventario, imagenes y opciones'},
+    {label:'Revisar pedidos',tab:'orders',icon:<ShoppingBag size={18}/>,detail:'Estados, envio y tracking'},
+    {label:'Responder ayuda',tab:'support',icon:<LifeBuoy size={18}/>,detail:'Tickets y mensajes del cliente'},
+  ];
+  return <div className="space-y-6">
+    <UrgentTasksPanel data={data} setTab={setTab}/>
+    <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+      <Stat title="Ingresos" value={money(data.revenue)} detail="Ventas registradas"/>
+      <Stat title="Pedidos 24h" value={data.ordersLast24} detail="Ordenes recientes"/>
+      <Stat title="Productos" value={data.products} detail={(data.lowStock||0)+' con stock bajo'}/>
+      <Stat title="Margen" value={(finance.margin||0)+'%'} detail={money(finance.totalProfit||0)+' ganancia estimada'}/>
+    </div>
+    <div className="grid gap-6 xl:grid-cols-[1fr_.85fr]">
+      <Panel title="Acciones rapidas" action={<span className="admin-count-pill"><Activity size={15}/> Operacion</span>}>
+        <div className="grid gap-3 sm:grid-cols-2">{quickActions.map(action=><button key={action.label} type="button" className="admin-quick-action" onClick={()=>setTab(action.tab)}>
+          <span>{action.icon}</span><b>{action.label}</b><p>{action.detail}</p>
+        </button>)}</div>
+      </Panel>
+      <SystemHealthPanel/>
+    </div>
+    <div className="grid gap-6 xl:grid-cols-[1fr_.95fr]">
+      <Panel title="Ordenes de las ultimas 24 horas" action={<button type="button" className="admin-tiny-action" onClick={()=>setTab('orders')}>Ver pedidos</button>}>
+        {recentOrders.length?recentOrders.map((order:any)=><button type="button" key={order.id} className="admin-list-row mb-3 flex w-full justify-between gap-4 rounded-2xl px-4 py-3 text-left" onClick={()=>setTab('orders')}>
+          <div><b>{order.user?.name||'Cliente'}</b><p className="admin-muted text-sm">{statusLabels[order.status]||order.status} - {order.country||'sin pais'} - {new Date(order.createdAt).toLocaleString('es-DO')}</p></div>
+          <span className="font-black">{money(order.total,order.currency==='USD'?'US$':'RD$')}</span>
+        </button>):<Empty text="No hay pedidos en las ultimas 24 horas."/>}
+      </Panel>
+      <NotificationDashboardPanel/>
+    </div>
+    <div className="grid gap-6 xl:grid-cols-2">
+      <Panel title="Grafico circular de operacion"><Donut items={[{label:'Pedidos',value:data.orders||0,color:'#fb923c'},{label:'Usuarios',value:data.users||0,color:'#facc15'},{label:'Productos',value:data.products||0,color:'#ef4444'},{label:'Drops activos',value:data.activeDrops||0,color:'#a855f7'}]}/></Panel>
+      <Panel title="Recomendaciones inteligentes">{data.aiRecommendations?.length?data.aiRecommendations.map((item:string,index:number)=><div key={index} className="admin-recommendation mb-3 rounded-2xl p-4 text-sm">{item}</div>):<Empty text="Aun no hay suficientes datos para recomendaciones profundas."/>}</Panel>
+    </div>
+  </div>
+}
 
 function ProductsTabV2(){
   const qc=useQueryClient();
@@ -714,6 +927,21 @@ function ProductsTabV2(){
   const formVariants=Array.isArray(f.variants)?f.variants:[];
   const visibleVariantFields=variantFieldOptions.filter(option=>Boolean((f.variantFields||defaultVariantFields)[option.key]));
   const inlineVariantReady=!f.variantMode||formVariants.some((variant:any)=>[variant.name,variant.sku,variant.color,variant.size,variant.model,variant.lens,variant.imageUrl].some(value=>String(value||'').trim())||Number(variant.stock||0)>0);
+  const productWarnings=useMemo(()=>{
+    const warnings:any[]=[];
+    const price=Number(f.price||0);
+    const cost=Number(f.cost||0);
+    const stock=Number(f.stock||0);
+    const normalizedVariants=f.variantMode?normalizeFormVariants(formVariants,f):[];
+    const totalVariantStock=normalizedVariants.reduce((sum:number,variant:any)=>sum+Number(variant.stock||0),0);
+    if(String(f.name||'').trim()&&!currentImages.length)warnings.push({level:'critical',title:'Imagen pendiente',body:'Agrega al menos una imagen antes de publicar. Sin imagen el cliente no entiende el producto.'});
+    if(f.status==='ACTIVE'&&stock<=0&&(!f.variantMode||totalVariantStock<=0))warnings.push({level:'critical',title:'Stock en cero',body:'El producto esta activo, pero no tiene unidades disponibles.'});
+    if(price>0&&cost>0&&price<=cost)warnings.push({level:'warning',title:'Margen en riesgo',body:'El precio de venta es igual o menor al costo de compra.'});
+    if(f.discountActive&&cost>0&&discountPreview(f).salePrice<=cost)warnings.push({level:'warning',title:'Oferta sin ganancia',body:'El descuento deja el precio final igual o menor que el costo.'});
+    if(f.variantMode&&!normalizedVariants.length)warnings.push({level:'warning',title:'Opciones incompletas',body:'Activa opciones solo si al menos una fila tiene color, SKU, imagen o stock.'});
+    if(f.slug&&data.some((product:any)=>product.slug===f.slug&&product.id!==f.id))warnings.push({level:'critical',title:'Slug repetido',body:'Ya existe otro producto con esta URL. Cambiala para evitar enlaces rotos.'});
+    return warnings;
+  },[f,formVariants,currentImages.length,data]);
   const setVariantMode=(enabled:boolean)=>setF((prev:any)=>({...prev,variantMode:enabled,variantFields:prev.variantFields||{...defaultVariantFields},variants:enabled&&!(prev.variants||[]).length?[blankVariantFor(prev)]:prev.variants||[]}));
   const setVariantFieldVisibility=(key:string,checked:boolean)=>setF((prev:any)=>({...prev,variantFields:{...defaultVariantFields,...(prev.variantFields||{}),[key]:checked}}));
   const updateFormVariant=(index:number,patch:any)=>setF((prev:any)=>({...prev,variants:(Array.isArray(prev.variants)?prev.variants:[]).map((variant:any,i:number)=>i===index?{...variant,...patch}:variant)}));
@@ -728,6 +956,9 @@ function ProductsTabV2(){
       <Field label="Filtrar por estado"><AdminSelect className="min-w-[210px]" value={status} onChange={setStatus} options={[{value:'',label:'Todos'},...['ACTIVE','NEW','BESTSELLER','SOLD_OUT','UPCOMING','LIMITED_DROP'].map(x=>({value:x,label:x}))]}/></Field>
     </Toolbar>
     {!cats.length&&<div className="mb-5 rounded-2xl border border-yellow-400/20 bg-yellow-500/10 p-4 text-sm text-yellow-100">Primero crea una categoría para poder publicar productos.</div>}
+    {productFormOpen&&productWarnings.length>0&&<div className="mb-5 grid gap-3 md:grid-cols-2">{productWarnings.map((warning:any)=><div key={warning.title} className={'admin-preflight-card '+urgentTaskClass(warning.level)}>
+      <span>{warning.level==='critical'?<AlertTriangle size={18}/>:<Bell size={18}/>}</span><div><b>{warning.title}</b><p>{warning.body}</p></div>
+    </div>)}</div>}
     <div ref={productFormRef}><Panel title={f.id?'Editar producto':'Crear producto'} action={<button type="button" className="btn-ghost rounded-full px-4 py-2 text-xs" onClick={()=>setProductFormOpen(value=>!value)}><ChevronDown size={15} className={productFormOpen?'rotate-180 transition':'transition'}/>{productFormOpen?'Minimizar':'Mostrar'}</button>}>
       {productFormOpen?<div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <Field label="Nombre del producto"><input className="input-dark" value={f.name} onChange={e=>setF({...f,name:e.target.value,slug:f.slug||slugify(e.target.value)})}/></Field>
@@ -890,7 +1121,7 @@ export default function Admin(){
   return <Shell tab={tab} setTab={setTab}>
     {canDashboard&&isLoading&&<p className="text-white/45">Cargando panel...</p>}
     {canDashboard&&dashboardError&&<div className="rounded-2xl border border-red-400/30 bg-red-500/10 p-5"><h2 className="text-lg font-bold text-red-100">{dashboardError.title}</h2><p className="mt-2 text-sm text-red-50/80">{dashboardError.body}</p>{dashboardError.detail&&<p className="mt-3 rounded-xl bg-black/25 px-3 py-2 text-xs text-red-100/70">Detalle: {dashboardError.detail}</p>}</div>}
-    {tab==='overview'&&canDashboard&&data&&<Overview data={data}/>}
+    {tab==='overview'&&canDashboard&&data&&<OverviewEnhanced data={data} setTab={setTab}/>}
     {tab==='products'&&<ProductsTabV2/>}
     {tab==='categories'&&<CategoriesTab/>}
     {tab==='orders'&&<OrdersTabFull/>}
@@ -908,6 +1139,6 @@ export default function Admin(){
     {tab==='settings'&&(data?<SettingsTab data={data}/>:<Empty text="Necesitas permiso de dashboard para cargar el control del sitio."/> )}
     {tab==='support'&&<SupportTab/>}
     {tab==='roles'&&<RolesTab/>}
-    {tab==='security'&&<SecurityTab/>}
+    {tab==='security'&&<SecurityTabV2/>}
   </Shell>
 }

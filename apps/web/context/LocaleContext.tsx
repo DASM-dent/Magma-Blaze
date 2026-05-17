@@ -58,7 +58,7 @@ const translations: { es: Record<string, string> } = {
     'common.countryUS': 'Estados Unidos',
 
     'hero.badge': 'Con protección contra los rayos UV',
-    'hero.copy': 'Lentes únicos que protegen tu vista de edicion limitada. Para quienes no siguen tendencias: las crean.',
+    'hero.copy': 'Magma Blaze combina protección visual, diseño deportivo y comodidad ligera para acompañarte en cada actividad.',
     'hero.collection': 'Ver coleccion',
     'hero.drops': 'Proximos drops',
     'hero.scroll': 'Scroll',

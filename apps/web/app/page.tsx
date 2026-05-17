@@ -3,7 +3,7 @@ import HomeClient from './HomeClient';
 
 export const metadata: Metadata = {
   title: "Magma Blaze",
-  description: "Lentes únicos que protegen tu vista y de edición limitada",
+  description: "Magma Blaze combina protección visual, diseño deportivo y comodidad ligera para acompañarte en cada movimiento.",
 };
 
 export default function HomePage() {

@@ -469,9 +469,10 @@ router.patch('/orders/:id',async(req,res)=>{
     d.status='AWAITING_CUSTOMER_APPROVAL';
     d.shippingStatus='Precio de envío enviado al cliente';
   }
-  if(d.status==='PACKED') d.shippingStatus='Empaquetado';
-  if(d.status==='SHIPPED') { d.shippingStatus='Enviado'; d.shippedAt=new Date(); }
-  if(d.status==='DELIVERED') { d.shippingStatus='Entregado'; d.deliveredAt=new Date(); }
+  if(d.status==='PROCESSING') { d.shippingStatus='Procesando'; d.shippedAt=null; d.deliveredAt=null; }
+  if(d.status==='PACKED') { d.shippingStatus='Empaquetado'; d.shippedAt=null; d.deliveredAt=null; }
+  if(d.status==='SHIPPED') { d.shippingStatus='Enviado'; d.shippedAt=current.shippedAt||new Date(); d.deliveredAt=null; }
+  if(d.status==='DELIVERED') { d.shippingStatus='Entregado'; d.shippedAt=current.shippedAt||new Date(); d.deliveredAt=new Date(); }
   let order=await prisma.order.update({where:{id:req.params.id},data:d,include:{user:true,items:{include:{product:true}},events:{take:8,orderBy:{createdAt:'desc'},include:{user:{select:{id:true,name:true,role:true}}}}}});
   if(p.data.shipping!==undefined || p.data.shippingInvoiceUrl!==undefined || p.data.shippingReference!==undefined || p.data.status==='SHIPPED' || p.data.status==='DELIVERED'){
     order=await prisma.order.update({where:{id:order.id},data:{shippingInvoicePdfUrl:makeInvoicePdfDataUrl(order)},include:{user:true,items:{include:{product:true}},events:{take:8,orderBy:{createdAt:'desc'},include:{user:{select:{id:true,name:true,role:true}}}}}});
@@ -530,21 +531,22 @@ router.post('/orders/:id/cancel-sale',async(req,res)=>{
   const current=await prisma.order.findUnique({where:{id:req.params.id},include:{user:true,items:{include:{product:true,variant:true}}}});
   if(!current)return res.status(404).json({message:'Pedido no encontrado'});
   if(current.status==='CANCELLED')return res.json(toOrder(current));
+  const isReturn=current.status==='DELIVERED'||String(req.body?.action||'').toUpperCase()==='RETURNED';
   const updated=await prisma.$transaction(async tx=>{
     if(current.inventoryCommitted){
       for(const item of current.items){
         if(item.variantId)await tx.productVariant.update({where:{id:item.variantId},data:{stock:{increment:item.quantity}}});
         else await tx.product.update({where:{id:item.productId},data:{stock:{increment:item.quantity}}});
-        await tx.inventoryMovement.create({data:{productId:item.productId,type:'RETURN',quantity:item.quantity,reason:'Venta cancelada por admin',reference:current.id,variantId:item.variantId||undefined}});
+        await tx.inventoryMovement.create({data:{productId:item.productId,type:'RETURN',quantity:item.quantity,reason:isReturn?'Pedido devuelto por cliente':'Venta cancelada por admin',reference:current.id,variantId:item.variantId||undefined}});
       }
     }
     await tx.paymentTransaction.updateMany({where:{orderId:current.id},data:{status:'CANCELLED'}});
-    await tx.orderEvent.create({data:{orderId:current.id,userId:req.user?.id,type:'SALE_CANCELLED',title:'Venta cancelada',body:current.inventoryCommitted?'Inventario devuelto por cancelacion.':'Pedido cancelado antes de confirmar inventario.'}});
-    return tx.order.update({where:{id:current.id},data:{status:'CANCELLED',paymentStatus:'CANCELLED',confirmationStatus:'CANCELLED',inventoryCommitted:false,cancelledAt:new Date(),shippingStatus:'Venta cancelada'},include:{user:true,items:{include:{product:true,variant:true}},events:{take:8,orderBy:{createdAt:'desc'},include:{user:{select:{id:true,name:true,role:true}}}}}});
+    await tx.orderEvent.create({data:{orderId:current.id,userId:req.user?.id,type:isReturn?'ORDER_RETURNED':'SALE_CANCELLED',title:isReturn?'Pedido devuelto':'Venta cancelada',body:isReturn?'Inventario devuelto por devolucion de pedido entregado.':current.inventoryCommitted?'Inventario devuelto por cancelacion.':'Pedido cancelado antes de confirmar inventario.'}});
+    return tx.order.update({where:{id:current.id},data:{status:'CANCELLED',paymentStatus:'CANCELLED',confirmationStatus:'CANCELLED',inventoryCommitted:false,cancelledAt:new Date(),shippingStatus:isReturn?'Pedido devuelto':'Venta cancelada'},include:{user:true,items:{include:{product:true,variant:true}},events:{take:8,orderBy:{createdAt:'desc'},include:{user:{select:{id:true,name:true,role:true}}}}}});
   });
-  await notifyCustomer(current.userId,'Pedido cancelado','Tu pedido fue cancelado por la tienda.','/cuenta','NORMAL','ORDER');
+  await notifyCustomer(current.userId,isReturn?'Pedido devuelto':'Pedido cancelado',isReturn?'Registramos la devolucion de tu pedido.':'Tu pedido fue cancelado por la tienda.','/cuenta','NORMAL','ORDER');
   await sendMail({ to:current.user.email, ...emailTemplates.saleCancelled({ orderId:current.id }) }).catch(()=>null);
-  await audit(req.user?.id,`ORDER_SALE_CANCELLED:${current.id}`,req.ip);
+  await audit(req.user?.id,`${isReturn?'ORDER_RETURNED':'ORDER_SALE_CANCELLED'}:${current.id}`,req.ip);
   res.json(toOrder(updated));
 });
 
@@ -1163,8 +1165,27 @@ router.post('/inventory/adjust',async(req,res)=>{
   await audit(req.user?.id,`INVENTORY_ADJUSTED:${p.data.productId}:${p.data.variantId||'base'}:${p.data.quantity}`,req.ip);
   res.json({product:toProduct(result.product),variant:result.variant?variantToUi(result.variant):null,movement:result.movement});
 });
-router.get('/logs',async(_req,res)=>res.json(await prisma.auditLog.findMany({take:80,orderBy:{createdAt:'desc'},include:{user:true}})));
-router.get('/security-bans',async(_req,res)=>res.json(await prisma.securityIpBan.findMany({take:80,orderBy:{updatedAt:'desc'}})));
+router.get('/logs',async(req,res)=>{
+  const q=String(req.query.q||'').trim();
+  const type=String(req.query.type||'').trim().toUpperCase();
+  const requestedTake=Number(req.query.take);
+  const take=Number.isFinite(requestedTake)?Math.min(Math.max(Math.floor(requestedTake),10),200):20;
+  const logs=await prisma.auditLog.findMany({
+    where:{AND:[
+      type?{action:{startsWith:type}}:{},
+      q?{OR:[{action:{contains:q}},{ip:{contains:q}},{user:{name:{contains:q}}},{user:{email:{contains:q}}}]}:{},
+    ]},
+    take,
+    orderBy:{createdAt:'desc'},
+    include:{user:true},
+  });
+  res.json(logs);
+});
+router.get('/security-bans',async(req,res)=>{
+  const requestedTake=Number(req.query.take);
+  const take=Number.isFinite(requestedTake)?Math.min(Math.max(Math.floor(requestedTake),10),200):20;
+  res.json(await prisma.securityIpBan.findMany({take,orderBy:{updatedAt:'desc'}}));
+});
 router.post('/security-bans/:id/unban',async(req,res)=>{
   const row=await prisma.securityIpBan.update({where:{id:req.params.id},data:{banned:false,hits:0,reason:null,bannedAt:null,bannedUntil:null}});
   await audit(req.user?.id,`SECURITY_IP_UNBANNED:${row.ip}`,req.ip);
