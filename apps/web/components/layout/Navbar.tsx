@@ -24,6 +24,7 @@ export default function Navbar() {
   const [localeOpen, setLocaleOpen] = useState(false);
   const searchRef = useRef<HTMLInputElement>(null);
   const localeRef = useRef<HTMLDivElement>(null);
+  const headerRef = useRef<HTMLElement>(null);
   const debounce = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
@@ -48,9 +49,11 @@ export default function Navbar() {
   useEffect(() => {
     const onPointerDown = (event: PointerEvent) => {
       if (!localeRef.current?.contains(event.target as Node)) setLocaleOpen(false);
+      if (menuOpen && !headerRef.current?.contains(event.target as Node)) setMenuOpen(false);
     };
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") setLocaleOpen(false);
+      if (event.key === "Escape") setMenuOpen(false);
     };
     window.addEventListener("pointerdown", onPointerDown);
     window.addEventListener("keydown", onKeyDown);
@@ -58,7 +61,7 @@ export default function Navbar() {
       window.removeEventListener("pointerdown", onPointerDown);
       window.removeEventListener("keydown", onKeyDown);
     };
-  }, []);
+  }, [menuOpen]);
 
   const navLinks = [
     { href: "/catalogo", label: t("nav.catalog") },
@@ -71,6 +74,7 @@ export default function Navbar() {
   return (
     <>
       <header
+        ref={headerRef}
         className="fixed top-0 left-0 right-0 z-40 transition-all duration-300"
         style={{
           background: scrolled ? "rgba(10,10,10,0.96)" : "transparent",
@@ -115,13 +119,15 @@ export default function Navbar() {
             </button>
 
             {/* User */}
-            <Link
-              href={user ? "/cuenta" : "/login"}
-              className="p-2 text-white/60 hover:text-white transition-colors"
-              aria-label={t("nav.account")}
-            >
-              <User className="w-5 h-5" />
-            </Link>
+            {user && (
+              <Link
+                href="/cuenta"
+                className="p-2 text-white/60 hover:text-white transition-colors"
+                aria-label={t("nav.account")}
+              >
+                <User className="w-5 h-5" />
+              </Link>
+            )}
 
             {/* Cart */}
             <button

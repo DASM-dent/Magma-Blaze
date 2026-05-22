@@ -5,10 +5,8 @@ import { CreditCard, MessageCircle } from 'lucide-react';
 import { toast } from 'sonner';
 import { useCart } from '@/context/CartContext';
 import { useStoreLocale } from '@/context/LocaleContext';
-import { useAuth } from '@/context/AuthContext';
 import { createSharedCartUrl } from '@/lib/cartShare';
 import { cartOrderWhatsappUrl } from '@/lib/whatsapp';
-import { api } from '@/lib/api';
 
 const rdProvinces = ['Azua','Baoruco','Barahona','Dajabon','Distrito Nacional','Duarte','El Seibo','Elias Piña','Espaillat','Hato Mayor','Hermanas Mirabal','Independencia','La Altagracia','La Romana','La Vega','Maria Trinidad Sanchez','Monseñor Nouel','Monte Cristi','Monte Plata','Pedernales','Peravia','Puerto Plata','Samana','San Cristobal','San Jose de Ocoa','San Juan','San Pedro de Macoris','Sanchez Ramirez','Santiago','Santiago Rodriguez','Santo Domingo','Valverde'];
 const usStates = ['Florida','New York','Texas','California','New Jersey','Pennsylvania','Massachusetts','Georgia','North Carolina','Virginia'];
@@ -21,7 +19,6 @@ function Field({ label, children }: { label:string; children:React.ReactNode }) 
 
 export default function CheckoutPage() {
   const cart = useCart();
-  const { user } = useAuth();
   const { country, symbol, t, setCountry } = useStoreLocale();
   const [form, setForm] = useState({ country, province: country === 'RD' ? 'La Vega' : 'Florida', city: country === 'RD' ? 'La Vega' : 'Miami', addressLine: '', promoCode: '', paymentMethodId: '' });
   const [submitting, setSubmitting] = useState(false);
@@ -35,8 +32,7 @@ export default function CheckoutPage() {
     if (typeof window === 'undefined') return '';
     return createSharedCartUrl(cart.items, window.location.origin, symbol);
   }, [cart.items, symbol]);
-  const checkoutLines = (orderId?: string) => [
-    orderId ? `Pedido interno: ${orderId}` : '',
+  const checkoutLines = () => [
     `${t('checkout.country')}: ${form.country}`,
     `${t('checkout.province')}: ${form.province}`,
     `${t('checkout.city')}: ${form.city}`,
@@ -46,35 +42,18 @@ export default function CheckoutPage() {
   ];
   const submitOrder = async () => {
     if (!cart.items.length || submitting) return;
-    if (!user) {
-      toast.error('Inicia sesion antes de hacer el pedido.');
-      window.location.href = '/login?next=/checkout';
-      return;
-    }
     if (form.addressLine.trim().length < 5) {
       toast.error('Agrega una direccion de entrega.');
       return;
     }
     setSubmitting(true);
     try {
-      const order:any = await api('/orders/checkout', {
-        method:'POST',
-        body:JSON.stringify({
-          items:cart.items.map(item=>({productId:item.productId,variantId:item.variant?.id||undefined,quantity:item.quantity})),
-          country:form.country,
-          province:form.province,
-          city:form.city,
-          addressLine:form.addressLine,
-          promoCode:form.promoCode||undefined,
-          paymentMethodId:form.paymentMethodId||undefined,
-        }),
-      });
-      const orderUrl = cartOrderWhatsappUrl(cart.items, symbol, order.total || subtotal, sharedCartUrl, checkoutLines(order.id));
-      toast.success('Pedido creado. Abriendo WhatsApp...');
+      const orderUrl = cartOrderWhatsappUrl(cart.items, symbol, subtotal, sharedCartUrl, checkoutLines());
+      toast.success('Abriendo WhatsApp...', { description: 'Tu carrito quedo incluido en el mensaje.' });
       cart.clearCart();
       window.open(orderUrl, '_blank', 'noopener,noreferrer');
     } catch (error:any) {
-      toast.error(error.message || 'No se pudo crear el pedido.');
+      toast.error(error.message || 'No se pudo abrir WhatsApp.');
     } finally {
       setSubmitting(false);
     }
@@ -118,7 +97,7 @@ export default function CheckoutPage() {
               onClick={submitOrder}
               disabled={cart.items.length === 0 || submitting}
             >
-              <MessageCircle size={18} /> {submitting ? 'Creando pedido...' : t('checkout.verifyAvailability')}
+              <MessageCircle size={18} /> {submitting ? 'Abriendo WhatsApp...' : t('checkout.verifyAvailability')}
             </button>
             <p className="md:col-span-2 rounded-2xl border border-white/10 bg-black/25 p-4 text-sm text-white/65">{t('checkout.whatsappNotice')}</p>
           </div>

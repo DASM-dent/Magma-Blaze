@@ -89,6 +89,7 @@ model Category {
   name     String
   slug     String    @unique
   icon     String    @default("🕶️")
+  imageUrl String?
   sortOrder Int      @default(0)
   products Product[]
 }
@@ -429,6 +430,58 @@ model ContentBlock {
   isActive  Boolean  @default(true)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+model MarketingPopup {
+  id                  String   @id @default(cuid())
+  name                String
+  title               String
+  subtitle            String?
+  body                String?
+  imageUrl            String?
+  backgroundColor     String   @default("#120d0a")
+  overlayColor        String   @default("rgba(0,0,0,0.38)")
+  titleColor          String   @default("#fff7ed")
+  subtitleColor       String   @default("#fed7aa")
+  bodyColor           String   @default("#ffffff")
+  width               Int      @default(760)
+  height              Int      @default(520)
+  useImageDimensions  Boolean  @default(false)
+  imageNaturalWidth   Int?
+  imageNaturalHeight  Int?
+  titleX              Int      @default(50)
+  titleY              Int      @default(18)
+  titleAlign          String   @default("center")
+  subtitleX           Int      @default(50)
+  subtitleY           Int      @default(30)
+  subtitleAlign       String   @default("center")
+  bodyX               Int      @default(50)
+  bodyY               Int      @default(58)
+  bodyAlign           String   @default("center")
+  buttonsX            Int      @default(50)
+  buttonsY            Int      @default(82)
+  buttonsAlign        String   @default("center")
+  primaryLabel        String   @default("Ver mas")
+  primaryAction       String   @default("LINK")
+  primaryUrl          String?
+  primaryBgColor      String   @default("#ff6a00")
+  primaryTextColor    String   @default("#111111")
+  secondaryLabel      String?
+  secondaryAction     String   @default("CLOSE")
+  secondaryUrl        String?
+  secondaryBgColor    String   @default("transparent")
+  secondaryTextColor  String   @default("#ffffff")
+  delaySeconds        Int      @default(4)
+  showOnce            Boolean  @default(true)
+  isActive            Boolean  @default(false)
+  startsAt            DateTime?
+  endsAt              DateTime?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  @@index([isActive])
+  @@index([startsAt])
+  @@index([endsAt])
 }
 
 model StoreMetric {

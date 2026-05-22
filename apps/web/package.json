@@ -2,7 +2,7 @@
   "name": "@magma/web",
   "version": "1.0.0",
   "scripts": {
-    "dev": "set NEXT_DIST_DIR=.next-dev&& node scripts/clean-next-dev.cjs .next-dev && next dev -p 3000",
+    "dev": "node scripts/dev-next.cjs",
     "build": "node scripts/clean-next-dev.cjs && next build",
     "start": "next start -p 3000",
     "lint": "next lint"

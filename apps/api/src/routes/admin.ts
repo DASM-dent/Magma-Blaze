@@ -221,7 +221,7 @@ function permissionForPath(path: string) {
   if (path.startsWith('/orders')) return 'orders';
   if (path.startsWith('/drops')) return 'drops';
   if (path.startsWith('/models')) return 'models';
-  if (path.startsWith('/content') || path.startsWith('/news')) return 'content';
+  if (path.startsWith('/content') || path.startsWith('/news') || path.startsWith('/popups')) return 'content';
   if (path.startsWith('/shipping')) return 'shipping';
   if (path.startsWith('/users')) return 'users';
   if (path.startsWith('/reports')) return 'reports';
@@ -308,8 +308,8 @@ router.get('/dashboard', async (_req,res)=>{
 });
 
 router.get('/categories', async (_req,res)=>res.json(await prisma.category.findMany({orderBy:[{sortOrder:'asc'},{name:'asc'}],include:{_count:{select:{products:true}}}})));
-const categorySchema=z.object({name:z.string().min(2),slug:z.string().optional(),icon:z.string().min(1).max(12).default('🕶️'),sortOrder:z.number().int().optional()});
-router.post('/categories',async(req,res)=>{const p=categorySchema.safeParse(req.body); if(!p.success)return res.status(400).json({message:'Categoría inválida',errors:p.error.flatten()}); const c=await prisma.category.create({data:{name:p.data.name,slug:p.data.slug||slugify(p.data.name),icon:p.data.icon||'🕶️',sortOrder:p.data.sortOrder??0}}); await audit(req.user?.id,`CATEGORY_CREATED:${c.id}`,req.ip); res.status(201).json(c);});
+const categorySchema=z.object({name:z.string().min(2),slug:z.string().optional(),icon:z.string().min(1).max(12).default('🕶️'),imageUrl:z.string().optional().nullable(),sortOrder:z.number().int().optional()});
+router.post('/categories',async(req,res)=>{const p=categorySchema.safeParse(req.body); if(!p.success)return res.status(400).json({message:'Categoría inválida',errors:p.error.flatten()}); const c=await prisma.category.create({data:{name:p.data.name,slug:p.data.slug||slugify(p.data.name),icon:p.data.icon||'🕶️',imageUrl:p.data.imageUrl||null,sortOrder:p.data.sortOrder??0}}); await audit(req.user?.id,`CATEGORY_CREATED:${c.id}`,req.ip); res.status(201).json(c);});
 router.patch('/categories/:id',async(req,res)=>{const p=categorySchema.partial().safeParse(req.body); if(!p.success)return res.status(400).json({message:'Categoría inválida'}); const c=await prisma.category.update({where:{id:req.params.id},data:{...p.data,...(p.data.name&&!p.data.slug?{slug:slugify(p.data.name)}:{})}}); await audit(req.user?.id,`CATEGORY_UPDATED:${c.id}`,req.ip); res.json(c);});
 router.delete('/categories/:id',async(req,res)=>{const count=await prisma.product.count({where:{categoryId:req.params.id}}); if(count>0)return res.status(409).json({message:'No puedes eliminar una categoría con productos.'}); await prisma.category.delete({where:{id:req.params.id}}); await audit(req.user?.id,`CATEGORY_DELETED:${req.params.id}`,req.ip); res.json({ok:true});});
 
@@ -595,6 +595,86 @@ const contentSchema=z.object({area:z.string().min(2),title:z.string().min(2),sub
 router.post('/content',async(req,res)=>{const p=contentSchema.safeParse(req.body); if(!p.success)return res.status(400).json({message:'Contenido inválido'}); const c=await prisma.contentBlock.create({data:p.data}); await audit(req.user?.id,`CONTENT_CREATED:${c.id}`,req.ip); res.status(201).json(c);});
 router.patch('/content/:id',async(req,res)=>{const p=contentSchema.partial().safeParse(req.body); if(!p.success)return res.status(400).json({message:'Contenido inválido'}); const c=await prisma.contentBlock.update({where:{id:req.params.id},data:p.data}); await audit(req.user?.id,`CONTENT_UPDATED:${c.id}`,req.ip); res.json(c);});
 router.delete('/content/:id',async(req,res)=>{await prisma.contentBlock.delete({where:{id:req.params.id}}); await audit(req.user?.id,`CONTENT_DELETED:${req.params.id}`,req.ip); res.json({ok:true});});
+
+const popupActions=['LINK','CLOSE','HOME','WHATSAPP'] as const;
+const popupAlignments=['left','center','right'] as const;
+const colorValue=z.string().min(2).max(80);
+const popupSchema=z.object({
+  name:z.string().min(2),
+  title:z.string().min(2),
+  subtitle:z.string().optional().nullable(),
+  body:z.string().optional().nullable(),
+  imageUrl:z.string().optional().nullable(),
+  backgroundColor:colorValue.default('#120d0a'),
+  overlayColor:colorValue.default('rgba(0,0,0,0.38)'),
+  titleColor:colorValue.default('#fff7ed'),
+  subtitleColor:colorValue.default('#fed7aa'),
+  bodyColor:colorValue.default('#ffffff'),
+  width:z.number().int().min(280).max(1400).default(760),
+  height:z.number().int().min(260).max(1100).default(520),
+  useImageDimensions:z.boolean().default(false),
+  imageNaturalWidth:z.number().int().min(1).max(5000).optional().nullable(),
+  imageNaturalHeight:z.number().int().min(1).max(5000).optional().nullable(),
+  titleX:z.number().int().min(0).max(100).default(50),
+  titleY:z.number().int().min(0).max(100).default(18),
+  titleAlign:z.enum(popupAlignments).default('center'),
+  subtitleX:z.number().int().min(0).max(100).default(50),
+  subtitleY:z.number().int().min(0).max(100).default(30),
+  subtitleAlign:z.enum(popupAlignments).default('center'),
+  bodyX:z.number().int().min(0).max(100).default(50),
+  bodyY:z.number().int().min(0).max(100).default(58),
+  bodyAlign:z.enum(popupAlignments).default('center'),
+  buttonsX:z.number().int().min(0).max(100).default(50),
+  buttonsY:z.number().int().min(0).max(100).default(82),
+  buttonsAlign:z.enum(popupAlignments).default('center'),
+  primaryLabel:z.string().min(1).default('Ver mas'),
+  primaryAction:z.enum(popupActions).default('LINK'),
+  primaryUrl:z.string().optional().nullable(),
+  primaryBgColor:colorValue.default('#ff6a00'),
+  primaryTextColor:colorValue.default('#111111'),
+  secondaryLabel:z.string().optional().nullable(),
+  secondaryAction:z.enum(popupActions).default('CLOSE'),
+  secondaryUrl:z.string().optional().nullable(),
+  secondaryBgColor:colorValue.default('transparent'),
+  secondaryTextColor:colorValue.default('#ffffff'),
+  delaySeconds:z.number().int().min(0).max(120).default(4),
+  showOnce:z.boolean().default(true),
+  isActive:z.boolean().default(false),
+  startsAt:z.string().optional().nullable(),
+  endsAt:z.string().optional().nullable(),
+});
+function popupPayload(data:any){
+  const payload:any={...data};
+  ['subtitle','body','imageUrl','primaryUrl','secondaryLabel','secondaryUrl'].forEach(key=>{if(payload[key]!==undefined)payload[key]=String(payload[key]||'').trim()||null;});
+  if(payload.startsAt!==undefined)payload.startsAt=payload.startsAt?new Date(payload.startsAt):null;
+  if(payload.endsAt!==undefined)payload.endsAt=payload.endsAt?new Date(payload.endsAt):null;
+  return payload;
+}
+router.get('/popups',async(_req,res)=>res.json(await prisma.marketingPopup.findMany({orderBy:[{isActive:'desc'},{updatedAt:'desc'}]})));
+router.post('/popups',async(req,res)=>{
+  const p=popupSchema.safeParse(req.body);
+  if(!p.success)return res.status(400).json({message:'Popup invalido',errors:p.error.flatten()});
+  const payload=popupPayload(p.data);
+  const popup=await prisma.$transaction(async tx=>{
+    const created=await tx.marketingPopup.create({data:payload});
+    if(created.isActive)await tx.marketingPopup.updateMany({where:{id:{not:created.id}},data:{isActive:false}});
+    return created;
+  });
+  await audit(req.user?.id,`POPUP_CREATED:${popup.id}`,req.ip);
+  res.status(201).json(popup);
+});
+router.patch('/popups/:id',async(req,res)=>{
+  const p=popupSchema.partial().safeParse(req.body);
+  if(!p.success)return res.status(400).json({message:'Popup invalido',errors:p.error.flatten()});
+  const payload=popupPayload(p.data);
+  const popup=await prisma.$transaction(async tx=>{
+    if(payload.isActive)await tx.marketingPopup.updateMany({where:{id:{not:req.params.id}},data:{isActive:false}});
+    return tx.marketingPopup.update({where:{id:req.params.id},data:payload});
+  });
+  await audit(req.user?.id,`POPUP_UPDATED:${popup.id}`,req.ip);
+  res.json(popup);
+});
+router.delete('/popups/:id',async(req,res)=>{await prisma.marketingPopup.delete({where:{id:req.params.id}}); await audit(req.user?.id,`POPUP_DELETED:${req.params.id}`,req.ip); res.json({ok:true});});
 
 router.get('/permissions',async(_req,res)=>res.json(ADMIN_PERMISSIONS));
 router.get('/roles',async(_req,res)=>res.json(await prisma.role.findMany({orderBy:{name:'asc'},include:{permissions:true,_count:{select:{permissions:true}}}})));

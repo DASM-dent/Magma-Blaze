@@ -1,8 +1,6 @@
 'use client';
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
-import { api } from '@/lib/api';
-import { useAuth } from '@/context/AuthContext';
 import { toast } from 'sonner';
 
 export type FavoriteProduct = {
@@ -99,7 +97,6 @@ function persistFavorites(items: FavoriteProduct[]) {
 }
 
 export function FavoritesProvider({ children }: { children: React.ReactNode }) {
-  const { user } = useAuth();
   const [favorites, setFavorites] = useState<FavoriteProduct[]>([]);
   const [hydrated, setHydrated] = useState(false);
   const [syncStatus, setSyncStatus] = useState<FavoriteSyncStatus>('local');
@@ -117,91 +114,35 @@ export function FavoritesProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (!hydrated) return;
-    if (!user) {
-      setSyncStatus('local');
-      return;
-    }
-    let cancelled = false;
-    async function syncFavorites() {
-      setSyncStatus('syncing');
-      try {
-        const serverItems = await api<any[]>('/account/favorites');
-        const serverFavorites = serverItems.map(normalizeFavorite).filter(Boolean) as FavoriteProduct[];
-        const localFavorites = readStoredFavorites();
-        const missingLocal = localFavorites.filter(local => !serverFavorites.some(server => server.id === local.id));
-        await Promise.all(missingLocal.map(item => api('/account/favorites', { method: 'POST', body: JSON.stringify({ productId: item.id }) }).catch(() => null)));
-        if (!cancelled) {
-          setFavorites(uniqueFavorites([...missingLocal, ...serverFavorites]));
-          setSyncStatus('synced');
-          setLastSyncedAt(new Date().toISOString());
-        }
-      } catch {
-        if (!cancelled) setSyncStatus('error');
-      }
-    }
-    syncFavorites();
-    return () => { cancelled = true; };
-  }, [user, hydrated]);
+    setSyncStatus('local');
+    setLastSyncedAt(null);
+  }, [hydrated]);
 
   const isFavorite = useCallback((id: string) => favorites.some((product) => product.id === id), [favorites]);
 
   const toggleFavorite = useCallback((product: FavoriteProduct) => {
-    if (!user) {
-      toast('Inicia sesion para guardar favoritos', {
-        description: 'Tus favoritos quedaran guardados en tu cuenta y podras verlos desde tu perfil.',
-        action: {
-          label: 'Entrar',
-          onClick: () => {
-            window.location.href = `/login?next=${encodeURIComponent(window.location.pathname + window.location.search)}`;
-          },
-        },
-      });
-      return;
-    }
     const exists = favorites.some((item) => item.id === product.id);
     setFavorites((current) => {
       if (current.some((item) => item.id === product.id)) return current.filter((item) => item.id !== product.id);
       const nextFavorite = normalizeFavorite(product);
       return nextFavorite ? [nextFavorite, ...current] : current;
     });
-    setSyncStatus('syncing');
-    const path = exists ? `/account/favorites/${product.id}` : '/account/favorites';
-    const options = exists ? { method: 'DELETE' } : { method: 'POST', body: JSON.stringify({ productId: product.id }) };
-    api(path, options)
-      .then(() => {
-        setSyncStatus('synced');
-        setLastSyncedAt(new Date().toISOString());
-        if (exists) {
-          toast('Producto quitado de favoritos', { description: product.name });
-        } else {
-          toast.success('Producto agregado a favoritos', {
-            description: product.name,
-            action: {
-              label: 'Cuenta',
-              onClick: () => {
-                window.location.href = '/cuenta';
-              },
-            },
-          });
-        }
-      })
-      .catch(() => {
-        setSyncStatus('error');
-        toast.error('No se pudo sincronizar favoritos', {
-          description: 'El cambio quedo local por ahora. Intenta de nuevo si no aparece en tu cuenta.',
-        });
+    setSyncStatus('local');
+    setLastSyncedAt(null);
+    if (exists) {
+      toast('Producto quitado de favoritos', { description: product.name });
+    } else {
+      toast.success('Producto agregado a favoritos', {
+        description: 'Quedo guardado en este navegador.',
       });
-  }, [favorites, user]);
+    }
+  }, [favorites]);
 
   const removeFavorite = useCallback((id: string) => {
     setFavorites((current) => current.filter((item) => item.id !== id));
-    if (user) {
-      setSyncStatus('syncing');
-      api(`/account/favorites/${id}`, { method: 'DELETE' })
-        .then(() => { setSyncStatus('synced'); setLastSyncedAt(new Date().toISOString()); })
-        .catch(() => setSyncStatus('error'));
-    }
-  }, [user]);
+    setSyncStatus('local');
+    setLastSyncedAt(null);
+  }, []);
 
   const value = useMemo(() => ({ favorites, syncStatus, lastSyncedAt, isFavorite, toggleFavorite, removeFavorite }), [favorites, syncStatus, lastSyncedAt, isFavorite, toggleFavorite, removeFavorite]);
 

@@ -339,8 +339,13 @@ export default function CuentaPage() {
     },
     onError: () => setMsg(t('security.passwordError')),
   });
+  const customerRegistrationEnabled = false;
 
   const switchMode = (next: 'login' | 'register') => {
+    if (next === 'register' && !customerRegistrationEnabled) {
+      setAuthNotice({ tone: 'info', title: 'Registro pausado', message: 'Por ahora la tienda funciona sin cuentas de cliente. Puedes guardar productos en tu carrito y pedir por WhatsApp.' });
+      return;
+    }
     setMode(next);
     setMsg('');
     setAuthNotice(null);
@@ -359,6 +364,10 @@ export default function CuentaPage() {
     setAuthNotice(null);
     try {
       if (mode === 'register') {
+        if (!customerRegistrationEnabled) {
+          setAuthNotice({ tone: 'info', title: 'Registro pausado', message: 'Por ahora la tienda funciona sin cuentas de cliente. Puedes comprar desde el carrito por WhatsApp.' });
+          return;
+        }
         const data: any = await register(name, email, password, enableEmailCodeLogin);
         if (data?.requiresEmailVerification) {
           setCodeMode('email');
@@ -642,10 +651,10 @@ export default function CuentaPage() {
           </motion.span>
         </div>
 
-        {codeMode === 'none' && <div className="mb-6 grid grid-cols-2 rounded-2xl border border-white/10 bg-black/35 p-1">
+        {codeMode === 'none' && <div className="mb-6 grid grid-cols-1 rounded-2xl border border-white/10 bg-black/35 p-1">
           <button type="button" onClick={() => switchMode('login')} className={`rounded-xl px-4 py-3 text-sm font-black transition ${mode === 'login' ? 'bg-orange-500 text-black shadow-lg shadow-orange-500/20' : 'text-white/55 hover:text-white'}`}>{t('auth.signIn')}</button>
-          <button type="button" onClick={() => switchMode('register')} className={`rounded-xl px-4 py-3 text-sm font-black transition ${mode === 'register' ? 'bg-orange-500 text-black shadow-lg shadow-orange-500/20' : 'text-white/55 hover:text-white'}`}>{t('auth.createAccount')}</button>
         </div>}
+        {codeMode === 'none' && !customerRegistrationEnabled && <p className="mb-5 rounded-2xl border border-orange-300/15 bg-orange-500/10 px-4 py-3 text-sm leading-6 text-orange-50/75">El registro de clientes esta pausado. La tienda sigue abierta para ver catalogo, guardar carrito en este navegador y pedir por WhatsApp.</p>}
 
         <AnimatePresence mode="wait">
           <motion.div

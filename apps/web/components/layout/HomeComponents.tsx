@@ -72,11 +72,13 @@ export function CategoryGrid() {
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           {categories.map((cat: any, i: number) => (
             <motion.div key={cat.slug} initial={{ opacity: 0, y: 20 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }} transition={{ delay: i * 0.1 }}>
-              <Link href={`/catalogo?categoria=${cat.slug}`} className="group flex flex-col items-center justify-center gap-3 py-10 transition-all duration-300" style={{ background: "#141414", border: "1px solid #2a2a2a" }}>
+              <Link href={`/catalogo?categoria=${cat.slug}`} className="group relative flex aspect-[4/3] flex-col items-center justify-center gap-3 overflow-hidden p-5 text-center transition-all duration-300 [&>span]:relative [&>span]:z-10" style={{ background: "#141414", border: "1px solid #2a2a2a" }}>
+                {cat.imageUrl && <img src={cat.imageUrl} alt={cat.name} className="absolute inset-0 h-full w-full object-cover opacity-70 transition duration-500 group-hover:scale-105 group-hover:opacity-85" loading="lazy" />}
+                {cat.imageUrl && <span className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/25 to-black/15" />}
                 <span className="text-4xl">{cat.icon || "🕶️"}</span>
-                <span className="font-heading text-lg text-white group-hover:text-ember-DEFAULT transition-colors uppercase tracking-wider">{cat.name}</span>
-                <span className="text-xs text-white/30">{cat._count?.products || 0} {t("home.products")}</span>
-                <ArrowRight className="w-4 h-4 text-white/20 group-hover:text-ember-DEFAULT group-hover:translate-x-1 transition-all" />
+                <span className="relative z-10 font-heading text-lg text-white group-hover:text-ember-DEFAULT transition-colors uppercase tracking-wider">{cat.name}</span>
+                <span className="relative z-10 text-xs text-white/55">{cat._count?.products || 0} {t("home.products")}</span>
+                <ArrowRight className="relative z-10 w-4 h-4 text-white/30 group-hover:text-ember-DEFAULT group-hover:translate-x-1 transition-all" />
               </Link>
             </motion.div>
           ))}

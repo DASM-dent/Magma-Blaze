@@ -54,6 +54,15 @@ app.use(rateLimit({
 app.use('/security', securityRoutes);
 app.use(blockBannedIp);
 
+app.get('/', (_req, res) => {
+  res.json({
+    ok: true,
+    service: 'magma-api',
+    health: '/health',
+    frontend: Array.from(allowedOrigins).filter((origin) => origin.startsWith('http')),
+  });
+});
+
 app.get('/health', async (_req, res) => {
   try {
     await prisma.$queryRaw`SELECT 1`;

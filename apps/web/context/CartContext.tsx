@@ -2,7 +2,6 @@
 
 import { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import { productApi } from '@/services/api';
-import { useAuth } from '@/context/AuthContext';
 import { toast } from 'sonner';
 
 export type CartProduct = { id: string; name: string; slug: string; price: number; image?: string };
@@ -79,7 +78,6 @@ function persistCart(items: CartItem[]) {
 }
 
 export function CartProvider({ children }: { children: React.ReactNode }) {
-  const { user } = useAuth();
   const [isOpen, setIsOpen] = useState(false);
   const [items, setItems] = useState<CartItem[]>([]);
   const [hydrated, setHydrated] = useState(false);
@@ -95,18 +93,6 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
   }, [items, hydrated]);
 
   const addItem = async (productId: string, variantId?: string, quantity = 1) => {
-    if (!user) {
-      toast('Inicia sesion para usar tu carrito', {
-        description: 'Asi podemos guardar tus productos y preparar tu pedido sin perder detalles.',
-        action: {
-          label: 'Entrar',
-          onClick: () => {
-            window.location.href = `/login?next=${encodeURIComponent(window.location.pathname + window.location.search)}`;
-          },
-        },
-      });
-      return;
-    }
     const existing = items.find((i) => (i.productId === productId || i.product.slug === productId) && (i.variant?.id || '') === (variantId || ''));
     if (existing) {
       setItems((prev) => prev.map((i) => i.id === existing.id ? { ...i, quantity: i.quantity + quantity } : i));
@@ -142,18 +128,6 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
     setItems((prev) => prev.map((i) => i.id === id ? { ...i, quantity } : i));
   };
   const addSnapshotItems = (snapshotItems: CartSnapshotItem[]) => {
-    if (!user) {
-      toast('Inicia sesion para copiar este carrito', {
-        description: 'Despues de entrar podras agregar estos productos a tu propio carrito.',
-        action: {
-          label: 'Entrar',
-          onClick: () => {
-            window.location.href = `/login?next=${encodeURIComponent(window.location.pathname + window.location.search)}`;
-          },
-        },
-      });
-      return false;
-    }
     const normalized = snapshotItems
       .map((item, index) => normalizeSnapshotItem(item, index))
       .filter((item): item is CartItem => Boolean(item));
@@ -186,7 +160,7 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
 
   const subtotal = items.reduce((acc, i) => acc + i.unitPrice * i.quantity, 0);
   const itemCount = items.reduce((acc, i) => acc + i.quantity, 0);
-  const value = useMemo(() => ({ isOpen, openCart: () => setIsOpen(true), closeCart: () => setIsOpen(false), items, subtotal, itemCount, addItem, addSnapshotItems, updateItem, removeItem, clearCart }), [isOpen, items, subtotal, itemCount, user]);
+  const value = useMemo(() => ({ isOpen, openCart: () => setIsOpen(true), closeCart: () => setIsOpen(false), items, subtotal, itemCount, addItem, addSnapshotItems, updateItem, removeItem, clearCart }), [isOpen, items, subtotal, itemCount]);
   return <CartContext.Provider value={value}>{children}</CartContext.Provider>;
 }
 
