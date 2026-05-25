@@ -372,17 +372,27 @@ button, input, select, textarea { font: inherit; }
   border-radius: 1.25rem;
   padding: .95rem;
   min-height: 4.25rem;
+  min-width: 0;
+  overflow: hidden;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: .75rem;
   transition: transform .18s ease, border-color .18s ease, background .18s ease;
 }
+.admin-notification-chip span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .admin-notification-chip b {
   display: grid;
   place-items: center;
+  flex: 0 0 auto;
   min-width: 2rem;
   height: 2rem;
+  padding: 0 .45rem;
   border-radius: 999px;
   background: color-mix(in srgb, var(--admin-muted) 16%, transparent);
 }

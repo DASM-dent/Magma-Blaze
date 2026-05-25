@@ -582,52 +582,31 @@ export default function CuentaPage() {
     <div className="pointer-events-none absolute inset-0">
       <div className="absolute inset-x-0 top-0 h-px bg-orange-500/35" />
       <div className="absolute inset-0 bg-[linear-gradient(135deg,rgba(255,111,15,.11)_0%,rgba(255,111,15,0)_28%,rgba(255,255,255,.045)_68%,rgba(255,255,255,0)_100%)]" />
+      <div className="absolute inset-0 opacity-[.18] [background-image:linear-gradient(rgba(255,106,26,.28)_1px,transparent_1px),linear-gradient(90deg,rgba(255,106,26,.2)_1px,transparent_1px)] [background-size:72px_72px]" />
       <div className="absolute left-0 top-24 h-px w-full bg-gradient-to-r from-transparent via-orange-500/25 to-transparent" />
       <motion.div
         className="absolute top-24 h-px w-1/3 bg-orange-300/55"
         animate={{ x: ['-35%', '260%'] }}
         transition={{ duration: 5.8, repeat: Infinity, ease: 'easeInOut' }}
       />
+      <motion.div
+        className="absolute left-0 top-[30%] h-px w-2/5 bg-gradient-to-r from-transparent via-white/35 to-transparent"
+        animate={{ x: ['-45%', '280%'], opacity: [0.05, 0.42, 0.05] }}
+        transition={{ duration: 7.5, repeat: Infinity, ease: 'easeInOut' }}
+      />
+      <motion.div
+        className="absolute -left-24 bottom-[24%] h-px w-1/2 rotate-[-10deg] bg-gradient-to-r from-transparent via-orange-400/35 to-transparent"
+        animate={{ x: ['-20%', '220%'], opacity: [0.08, 0.38, 0.08] }}
+        transition={{ duration: 9.2, repeat: Infinity, ease: 'easeInOut', delay: 1.1 }}
+      />
+      <motion.div
+        className="absolute right-[-10%] top-0 h-full w-px bg-gradient-to-b from-transparent via-orange-300/30 to-transparent"
+        animate={{ x: ['0%', '-950%'], opacity: [0.05, 0.3, 0.05] }}
+        transition={{ duration: 8.4, repeat: Infinity, ease: 'easeInOut', delay: 0.4 }}
+      />
     </div>
 
-    <div className="relative mx-auto grid max-w-[1120px] gap-8 lg:grid-cols-[.92fr_1.08fr] xl:gap-10">
-      <motion.div
-        initial={{ opacity: 0, y: 18 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.45 }}
-        className="rounded-[2.15rem] border border-orange-100/10 bg-[#120c08]/90 p-7 shadow-[0_30px_90px_rgba(255,91,0,.10)] backdrop-blur md:p-9"
-      >
-        <div className="mb-7 inline-flex items-center gap-2 rounded-full border border-orange-300/20 bg-orange-500/10 px-4 py-2 text-xs font-black uppercase tracking-[.18em] text-orange-100">
-          <ShieldCheck size={15} />
-          Acceso seguro
-        </div>
-        <h1 className="max-w-xl text-4xl font-black leading-tight md:text-6xl">
-          {isRegister ? 'Crea tu cuenta Magma.' : 'Bienvenida de nuevo.'}
-        </h1>
-        <p className="mt-5 max-w-xl text-sm leading-7 text-white/58 md:text-base">
-          {isRegister ? t('auth.registerIntro') : t('auth.loginIntro')}
-        </p>
-        <div className="mt-8 grid gap-3">
-          {[
-            ['Perfil protegido', 'Tus pedidos, favoritos y mensajes quedan conectados a tu cuenta.', <UserRound key="profile" size={18} />],
-            ['Codigo por correo', 'Si activas seguridad extra, validamos el acceso con un codigo unico.', <ShieldCheck key="shield" size={18} />],
-            ['Carrito y favoritos', 'Guarda productos para pedirlos por WhatsApp sin perder detalles.', <Heart key="heart" size={18} />],
-          ].map(([title, text, icon]) => (
-            <motion.div
-              key={String(title)}
-              whileHover={{ x: 4 }}
-              className="flex gap-3 rounded-2xl border border-white/10 bg-white/[.035] p-4"
-            >
-              <span className="grid h-10 w-10 shrink-0 place-items-center rounded-2xl bg-orange-500/15 text-orange-100">{icon}</span>
-              <span>
-                <b className="block text-sm text-white">{title}</b>
-                <span className="mt-1 block text-sm leading-6 text-white/45">{text}</span>
-              </span>
-            </motion.div>
-          ))}
-        </div>
-      </motion.div>
-
+    <div className="relative mx-auto grid max-w-[680px]">
       <motion.form
         onSubmit={codeMode === 'none' ? submit : submitCode}
         autoComplete="off"
@@ -639,8 +618,9 @@ export default function CuentaPage() {
         <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-orange-500 via-amber-300 to-orange-700" />
         <div className="mb-7 flex items-start justify-between gap-4">
           <div>
-            <p className="text-xs font-black uppercase tracking-[.22em] text-orange-200/80">Zona protegida</p>
-            <h2 className="mt-2 text-2xl font-black md:text-3xl">{codeMode === 'none' ? (isRegister ? t('auth.createAccount') : t('auth.signIn')) : t('auth.verifyCode')}</h2>
+            <p className="text-xs font-black uppercase tracking-[.22em] text-orange-200/80">Acceso privado</p>
+            <h2 className="mt-2 text-2xl font-black md:text-4xl">{codeMode === 'none' ? 'Iniciar sesion' : t('auth.verifyCode')}</h2>
+            {codeMode === 'none' && <p className="mt-3 max-w-md text-sm leading-6 text-white/45">Panel reservado para administrar Magma Blaze con acceso protegido.</p>}
           </div>
           <motion.span
             animate={{ rotate: [0, 8, -8, 0] }}
@@ -650,11 +630,6 @@ export default function CuentaPage() {
             <ShieldCheck size={22} />
           </motion.span>
         </div>
-
-        {codeMode === 'none' && <div className="mb-6 grid grid-cols-1 rounded-2xl border border-white/10 bg-black/35 p-1">
-          <button type="button" onClick={() => switchMode('login')} className={`rounded-xl px-4 py-3 text-sm font-black transition ${mode === 'login' ? 'bg-orange-500 text-black shadow-lg shadow-orange-500/20' : 'text-white/55 hover:text-white'}`}>{t('auth.signIn')}</button>
-        </div>}
-        {codeMode === 'none' && !customerRegistrationEnabled && <p className="mb-5 rounded-2xl border border-orange-300/15 bg-orange-500/10 px-4 py-3 text-sm leading-6 text-orange-50/75">El registro de clientes esta pausado. La tienda sigue abierta para ver catalogo, guardar carrito en este navegador y pedir por WhatsApp.</p>}
 
         <AnimatePresence mode="wait">
           <motion.div
