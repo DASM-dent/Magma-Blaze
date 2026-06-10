@@ -17,6 +17,29 @@ import contentRoutes from './routes/content.js';
 import accountRoutes from './routes/account.js';
 import securityRoutes, { blockBannedIp } from './routes/security.js';
 
+function patchExpressAsyncErrors() {
+  const router = express.Router();
+  router.get('/__async_patch__', (_req, res) => res.end());
+  const stack = (router as any).stack;
+  const layer = Array.isArray(stack) ? stack[0] : null;
+  const Layer = layer?.constructor;
+  if (!Layer?.prototype || Layer.prototype.__magmaAsyncPatched) return;
+  const original = Layer.prototype.handle_request;
+  Layer.prototype.handle_request = function handleRequest(req: express.Request, res: express.Response, next: express.NextFunction) {
+    const fn = this.handle;
+    if (fn.length > 3) return original.call(this, req, res, next);
+    try {
+      const result = fn(req, res, next);
+      if (result && typeof result.catch === 'function') result.catch(next);
+    } catch (error) {
+      next(error);
+    }
+  };
+  Layer.prototype.__magmaAsyncPatched = true;
+}
+
+patchExpressAsyncErrors();
+
 const app = express();
 app.use(helmet({ crossOriginResourcePolicy: { policy: 'cross-origin' } }));
 
@@ -82,9 +105,19 @@ app.use('/categories', categoryRoutes);
 app.use('/news', newsRoutes);
 app.use('/content', contentRoutes);
 
-app.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+app.use((err: any, _req: express.Request, res: express.Response, next: express.NextFunction) => {
   console.error('[API_ERROR]', err);
-  res.status(500).json({ message:'No pudimos completar la solicitud. Intenta nuevamente.' });
+  if (res.headersSent) return next(err);
+  const knownErrors: Record<string,{status:number;message:string}> = {
+    P2002: { status:409, message:'Ya existe un registro con esos datos.' },
+    P2003: { status:409, message:'Este registro esta relacionado con otros datos y no se puede modificar de esa forma.' },
+    P2025: { status:404, message:'El registro solicitado ya no existe.' },
+    P2028: { status:503, message:'La base de datos tardo demasiado. Intenta guardar nuevamente.' },
+  };
+  const known=knownErrors[String(err?.code||'')];
+  res.status(known?.status||500).json({
+    message:known?.message||'No pudimos completar la solicitud. Intenta nuevamente.',
+  });
 });
 
 const server = app.listen(config.port, () => console.log(`API lista en http://localhost:${config.port}`));

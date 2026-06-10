@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
 import { dropApi } from "@/services/api";
 import { api } from "@/lib/api";
 import DropLockScreen from "./DropLockScreen";
@@ -25,10 +25,13 @@ interface SiteState {
 
 export default function SiteGate({ children }: { children: React.ReactNode }) {
   const { t } = useStoreLocale();
+  const reduceMotion = useReducedMotion();
   const pathname = usePathname();
   const skipGate = pathname?.startsWith("/admin") || pathname?.startsWith("/dixnissowner") || pathname?.startsWith("/login") || pathname?.startsWith("/cuenta");
   const [state, setState] = useState<SiteState | null>(null);
   const [ready, setReady] = useState(false);
+  const [introComplete, setIntroComplete] = useState(false);
+  const introStartedAt = useRef(Date.now());
 
   useEffect(() => {
     if (skipGate) {
@@ -37,6 +40,9 @@ export default function SiteGate({ children }: { children: React.ReactNode }) {
       return;
     }
 
+    setReady(false);
+    setIntroComplete(false);
+    introStartedAt.current = Date.now();
     let active = true;
     async function loadState() {
       try {
@@ -61,19 +67,55 @@ export default function SiteGate({ children }: { children: React.ReactNode }) {
     return () => { active = false; };
   }, [skipGate]);
 
+  useEffect(() => {
+    if (!ready) return;
+    const elapsed = Date.now() - introStartedAt.current;
+    const minimumDuration = reduceMotion ? 180 : 1450;
+    const timer = window.setTimeout(() => setIntroComplete(true), Math.max(0, minimumDuration - elapsed));
+    return () => window.clearTimeout(timer);
+  }, [ready, reduceMotion]);
+
   if (skipGate) return <>{children}</>;
 
-  if (!ready) {
+  if (!ready || !introComplete) {
     return (
-      <div className="fixed inset-0 bg-[#0a0a0a] flex items-center justify-center z-50">
-        <motion.div initial={{ opacity: 0, scale: 0.8 }} animate={{ opacity: 1, scale: 1 }} className="flex flex-col items-center gap-6">
-          <div className="soft-title text-5xl text-white">Magma Blaze</div>
-          <div className="flex gap-2">
-            {[0, 1, 2].map((i) => (
-              <motion.div key={i} className="w-2 h-2 rounded-full bg-ember-DEFAULT" animate={{ scale: [1, 1.5, 1], opacity: [0.5, 1, 0.5] }} transition={{ repeat: Infinity, duration: 1, delay: i * 0.2 }} />
-            ))}
+      <div className="magma-intro" role="status" aria-label="Cargando Magma Blaze">
+        <div className="magma-intro-grid" />
+        <div className="magma-intro-sweep magma-intro-sweep-one" />
+        <div className="magma-intro-sweep magma-intro-sweep-two" />
+        <motion.div
+          initial={{ opacity: 0, scale: 0.92 }}
+          animate={{ opacity: 1, scale: 1 }}
+          transition={{ duration: 0.55, ease: [0.22, 1, 0.36, 1] }}
+          className="magma-intro-core"
+        >
+          <motion.div
+            className="magma-intro-mark"
+            initial={{ scaleY: 0 }}
+            animate={{ scaleY: 1 }}
+            transition={{ duration: 0.55, delay: 0.15, ease: [0.22, 1, 0.36, 1] }}
+          />
+          <div className="magma-intro-name">
+            <motion.span
+              initial={{ opacity: 0, y: 26 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.55, delay: 0.2 }}
+            >
+              MAGMA
+            </motion.span>
+            <motion.span
+              initial={{ opacity: 0, y: -26 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.55, delay: 0.32 }}
+            >
+              BLAZE
+            </motion.span>
           </div>
+          <div className="magma-intro-progress"><span /></div>
+          <p>Encendiendo la experiencia</p>
         </motion.div>
+        <span className="magma-intro-corner magma-intro-corner-tl" />
+        <span className="magma-intro-corner magma-intro-corner-br" />
       </div>
     );
   }
@@ -119,7 +161,12 @@ export default function SiteGate({ children }: { children: React.ReactNode }) {
 
   return (
     <AnimatePresence mode="wait">
-      <motion.div key="site" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.3 }}>
+      <motion.div
+        key="site"
+        initial={{ opacity: 0, clipPath: reduceMotion ? "none" : "inset(0 0 100% 0)" }}
+        animate={{ opacity: 1, clipPath: "inset(0 0 0% 0)" }}
+        transition={{ duration: reduceMotion ? 0.01 : 0.82, ease: [0.22, 1, 0.36, 1] }}
+      >
         {children}
       </motion.div>
     </AnimatePresence>

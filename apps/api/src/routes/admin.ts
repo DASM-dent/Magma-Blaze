@@ -573,15 +573,100 @@ router.post('/users',async(req,res)=>{const p=z.object({name:z.string().min(2),e
 router.patch('/users/:id',async(req,res)=>{const p=z.object({role:userRoleSchema.optional(),isVerified:z.boolean().optional(),name:z.string().min(2).optional(),blocked:z.boolean().optional(),blockedReason:z.string().optional().nullable(),twoFactorEmailEnabled:z.boolean().optional(),failedLoginAttempts:z.number().int().optional(),lockedUntil:z.string().nullable().optional()}).safeParse(req.body); if(!p.success)return res.status(400).json({message:'Usuario inválido'}); const d:any={...p.data}; if(d.role){ const role=await validateRole(d.role).catch(()=>null); if(!role)return res.status(400).json({message:'Rol no encontrado'}); d.role=role; } if(d.lockedUntil) d.lockedUntil=new Date(d.lockedUntil); const u=await prisma.user.update({where:{id:req.params.id},data:d,select:{id:true,name:true,email:true,role:true,isVerified:true,twoFactorEmailEnabled:true,blocked:true,blockedReason:true,failedLoginAttempts:true,lockedUntil:true,createdAt:true}}); await audit(req.user?.id,`USER_UPDATED:${u.id}`,req.ip); res.json(u);});
 
 router.get('/drops',async(_req,res)=>res.json(await prisma.drop.findMany({orderBy:{startsAt:'desc'},include:{_count:{select:{modelPhotos:true}}}})));
-const dropSchema=z.object({title:z.string().min(2),description:z.string().min(5),startsAt:z.string(),endsAt:z.string(),isActive:z.boolean().default(false),lockedMode:z.boolean().default(false)});
-router.post('/drops',async(req,res)=>{const p=dropSchema.safeParse(req.body); if(!p.success)return res.status(400).json({message:'Drop inválido'}); const d=p.data; const drop=await prisma.drop.create({data:{...d,startsAt:new Date(d.startsAt),endsAt:new Date(d.endsAt)}}); if(drop.isActive){ await prisma.drop.updateMany({where:{id:{not:drop.id}},data:{isActive:false}}); await prisma.siteSetting.upsert({where:{key:'storeMode'},update:{value:'DROP'},create:{key:'storeMode',value:'DROP'}}); } await audit(req.user?.id,`DROP_CREATED:${drop.id}`,req.ip); res.status(201).json(drop);});
-router.patch('/drops/:id',async(req,res)=>{const p=dropSchema.partial().safeParse(req.body); if(!p.success)return res.status(400).json({message:'Drop inválido'}); const d:any={...p.data}; if(d.startsAt)d.startsAt=new Date(d.startsAt); if(d.endsAt)d.endsAt=new Date(d.endsAt); const drop=await prisma.drop.update({where:{id:req.params.id},data:d}); if(drop.isActive){ await prisma.drop.updateMany({where:{id:{not:drop.id}},data:{isActive:false}}); await prisma.siteSetting.upsert({where:{key:'storeMode'},update:{value:'DROP'},create:{key:'storeMode',value:'DROP'}}); } await audit(req.user?.id,`DROP_UPDATED:${drop.id}`,req.ip); res.json(drop);});
-router.delete('/drops/:id',async(req,res)=>{await prisma.modelPhoto.deleteMany({where:{dropId:req.params.id}}); await prisma.drop.delete({where:{id:req.params.id}}); await audit(req.user?.id,`DROP_DELETED:${req.params.id}`,req.ip); res.json({ok:true});});
+const validDateString=z.string().min(1,'Selecciona una fecha').refine(value=>!Number.isNaN(Date.parse(value)),'La fecha no es valida');
+const dropFields={
+  title:z.string().trim().min(2,'El titulo debe tener al menos 2 caracteres'),
+  description:z.string().trim().min(5,'La descripcion debe tener al menos 5 caracteres'),
+  startsAt:validDateString,
+  endsAt:validDateString,
+  isActive:z.boolean().default(false),
+  lockedMode:z.boolean().default(false),
+};
+const validateDropDates=(data:{startsAt?:string;endsAt?:string},ctx:z.RefinementCtx)=>{
+  if(data.startsAt&&data.endsAt&&new Date(data.endsAt)<=new Date(data.startsAt)){
+    ctx.addIssue({code:z.ZodIssueCode.custom,path:['endsAt'],message:'La fecha final debe ser posterior a la fecha de inicio'});
+  }
+};
+const dropSchema=z.object(dropFields).superRefine(validateDropDates);
+const dropUpdateSchema=z.object(dropFields).partial().superRefine(validateDropDates);
+router.post('/drops',async(req,res)=>{
+  const p=dropSchema.safeParse(req.body);
+  if(!p.success)return res.status(400).json({message:p.error.issues[0]?.message||'Drop invalido',errors:p.error.flatten().fieldErrors});
+  const d=p.data;
+  const drop=await prisma.drop.create({data:{...d,startsAt:new Date(d.startsAt),endsAt:new Date(d.endsAt)}});
+  if(drop.isActive){
+    await prisma.drop.updateMany({where:{id:{not:drop.id}},data:{isActive:false}});
+    await prisma.siteSetting.upsert({where:{key:'storeMode'},update:{value:'DROP'},create:{key:'storeMode',value:'DROP'}});
+  }
+  await audit(req.user?.id,`DROP_CREATED:${drop.id}`,req.ip);
+  res.status(201).json(drop);
+});
+router.patch('/drops/:id',async(req,res)=>{
+  const current=await prisma.drop.findUnique({where:{id:req.params.id}});
+  if(!current)return res.status(404).json({message:'Drop no encontrado'});
+  const p=dropUpdateSchema.safeParse(req.body);
+  if(!p.success)return res.status(400).json({message:p.error.issues[0]?.message||'Drop invalido',errors:p.error.flatten().fieldErrors});
+  const startsAt=p.data.startsAt||current.startsAt.toISOString();
+  const endsAt=p.data.endsAt||current.endsAt.toISOString();
+  if(new Date(endsAt)<=new Date(startsAt))return res.status(400).json({message:'La fecha final debe ser posterior a la fecha de inicio'});
+  const d:any={...p.data};
+  if(d.startsAt)d.startsAt=new Date(d.startsAt);
+  if(d.endsAt)d.endsAt=new Date(d.endsAt);
+  const drop=await prisma.drop.update({where:{id:req.params.id},data:d});
+  if(drop.isActive){
+    await prisma.drop.updateMany({where:{id:{not:drop.id}},data:{isActive:false}});
+    await prisma.siteSetting.upsert({where:{key:'storeMode'},update:{value:'DROP'},create:{key:'storeMode',value:'DROP'}});
+  }
+  await audit(req.user?.id,`DROP_UPDATED:${drop.id}`,req.ip);
+  res.json(drop);
+});
+router.delete('/drops/:id',async(req,res)=>{await prisma.modelPhoto.updateMany({where:{dropId:req.params.id},data:{dropId:null}}); await prisma.drop.delete({where:{id:req.params.id}}); await audit(req.user?.id,`DROP_DELETED:${req.params.id}`,req.ip); res.json({ok:true});});
 
 router.get('/models',async(_req,res)=>res.json(await prisma.modelPhoto.findMany({orderBy:[{sortOrder:'asc'},{createdAt:'desc'}],include:{drop:true,product:true}})));
-const modelSchema=z.object({dropId:z.string(),productId:z.string(),imageUrl:z.string().min(5),caption:z.string().optional().nullable(),tagX:z.number().int().min(0).max(100).default(50),tagY:z.number().int().min(0).max(100).default(50),isActive:z.boolean().default(true),sortOrder:z.number().int().default(0)});
-router.post('/models',async(req,res)=>{const p=modelSchema.safeParse(req.body); if(!p.success)return res.status(400).json({message:'Foto inválida'}); const m=await prisma.modelPhoto.create({data:p.data}); await audit(req.user?.id,`MODEL_CREATED:${m.id}`,req.ip); res.status(201).json(m);});
-router.patch('/models/:id',async(req,res)=>{const p=modelSchema.partial().safeParse(req.body); if(!p.success)return res.status(400).json({message:'Foto inválida'}); const m=await prisma.modelPhoto.update({where:{id:req.params.id},data:p.data}); await audit(req.user?.id,`MODEL_UPDATED:${m.id}`,req.ip); res.json(m);});
+const modelSchema=z.object({
+  dropId:z.string().min(1).optional().nullable(),
+  productId:z.string().min(1,'Selecciona un producto'),
+  imageUrl:z.string().min(5,'Selecciona o pega una imagen'),
+  caption:z.string().optional().nullable(),
+  tagX:z.number().int().min(0).max(100).default(50),
+  tagY:z.number().int().min(0).max(100).default(50),
+  tagDotSize:z.number().int().min(12).max(72).default(24),
+  tagLabelSize:z.number().int().min(9).max(28).default(12),
+  tagLabelOffsetX:z.number().int().min(-240).max(240).default(0),
+  tagLabelOffsetY:z.number().int().min(-180).max(180).default(8),
+  isActive:z.boolean().default(true),
+  sortOrder:z.number().int().default(0),
+});
+async function modelRelationsExist(dropId:string|null|undefined,productId:string){
+  const [drop,product]=await Promise.all([
+    dropId?prisma.drop.findUnique({where:{id:dropId},select:{id:true}}):Promise.resolve(null),
+    prisma.product.findUnique({where:{id:productId},select:{id:true}}),
+  ]);
+  return {drop,product};
+}
+router.post('/models',async(req,res)=>{
+  const p=modelSchema.safeParse(req.body);
+  if(!p.success)return res.status(400).json({message:p.error.issues[0]?.message||'Foto invalida',errors:p.error.flatten().fieldErrors});
+  const relations=await modelRelationsExist(p.data.dropId,p.data.productId);
+  if(p.data.dropId&&!relations.drop)return res.status(400).json({message:'El drop seleccionado ya no existe'});
+  if(!relations.product)return res.status(400).json({message:'El producto seleccionado ya no existe'});
+  const m=await prisma.modelPhoto.create({data:p.data});
+  await audit(req.user?.id,`MODEL_CREATED:${m.id}`,req.ip);
+  res.status(201).json(m);
+});
+router.patch('/models/:id',async(req,res)=>{
+  const current=await prisma.modelPhoto.findUnique({where:{id:req.params.id}});
+  if(!current)return res.status(404).json({message:'Foto de modelo no encontrada'});
+  const p=modelSchema.partial().safeParse(req.body);
+  if(!p.success)return res.status(400).json({message:p.error.issues[0]?.message||'Foto invalida',errors:p.error.flatten().fieldErrors});
+  const nextDropId=p.data.dropId===undefined?current.dropId:p.data.dropId;
+  const relations=await modelRelationsExist(nextDropId,p.data.productId||current.productId);
+  if(nextDropId&&!relations.drop)return res.status(400).json({message:'El drop seleccionado ya no existe'});
+  if(!relations.product)return res.status(400).json({message:'El producto seleccionado ya no existe'});
+  const m=await prisma.modelPhoto.update({where:{id:req.params.id},data:p.data});
+  await audit(req.user?.id,`MODEL_UPDATED:${m.id}`,req.ip);
+  res.json(m);
+});
 router.delete('/models/:id',async(req,res)=>{await prisma.modelPhoto.delete({where:{id:req.params.id}}); await audit(req.user?.id,`MODEL_DELETED:${req.params.id}`,req.ip); res.json({ok:true});});
 
 router.get('/news',async(_req,res)=>res.json(await prisma.newsPost.findMany({orderBy:{createdAt:'desc'}})));
@@ -1279,7 +1364,7 @@ router.put('/settings/:key',async(req,res)=>{
   const s=await prisma.siteSetting.upsert({where:{key},update:{value},create:{key,value}});
 
   if(key==='storeMode'){
-    const publicKeys=['showModels','showDrops','showNews','showCategories','showFeatured','showFooter'];
+    const publicKeys=['showModels','showDrops','showNews','showCategories','showFeatured','showFooter','showShippingInfo'];
     const nextValue=value==='SHOP'?'true':'false';
     await Promise.all(publicKeys.map(k=>prisma.siteSetting.upsert({where:{key:k},update:{value:nextValue},create:{key:k,value:nextValue}})));
     await prisma.siteSetting.upsert({where:{key:'maintenance'},update:{value:String(value==='MAINTENANCE')},create:{key:'maintenance',value:String(value==='MAINTENANCE')}});

@@ -1,13 +1,20 @@
 "use client";
 
 import Link from "next/link";
-import { motion, useScroll, useTransform } from "framer-motion";
-import { ArrowRight, ChevronUp, Flame } from "lucide-react";
+import { AnimatePresence, motion, useReducedMotion, useScroll, useTransform } from "framer-motion";
+import { ArrowRight, ChevronDown, ChevronUp, Flame } from "lucide-react";
 import { useEffect, useState } from "react";
+import type { CSSProperties } from "react";
 import { useStoreLocale } from "@/context/LocaleContext";
+
+const BRAND_WORDS = [
+  { text: "MAGMA", className: "hero-brand-magma" },
+  { text: "BLAZE", className: "hero-brand-blaze" },
+];
 
 export default function HeroSection() {
   const { scrollY } = useScroll();
+  const reduceMotion = useReducedMotion();
   const { t } = useStoreLocale();
   const y = useTransform(scrollY, [0, 600], [0, 120]);
   const opacity = useTransform(scrollY, [0, 520], [1, 0.42]);
@@ -31,9 +38,29 @@ export default function HeroSection() {
           <Flame className="w-4 h-4 text-orange-300" />
           <span className="text-sm uppercase tracking-[0.25em] text-white/70">{t("hero.badge")}</span>
         </motion.div>
-        <motion.h1 initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.8, delay: 0.1 }} className="soft-title text-[clamp(72px,15vw,180px)] leading-none text-white">MAGMA</motion.h1>
-        <motion.div initial={{ opacity: 0, scaleX: 0 }} animate={{ opacity: 1, scaleX: 1 }} transition={{ duration: 0.6, delay: 0.4 }} className="mx-auto h-1 max-w-3xl" style={{ background: "linear-gradient(90deg, transparent, #ff5a1f, transparent)" }} />
-        <motion.h1 initial={{ opacity: 0, y: -30 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.8, delay: 0.2 }} className="soft-title text-[clamp(72px,15vw,180px)] leading-none mb-8 text-orange-500">BLAZE</motion.h1>
+        <motion.h1
+          initial={{ opacity: 0, y: 34, scale: 0.97 }}
+          animate={{ opacity: 1, y: 0, scale: 1 }}
+          transition={{ duration: 0.95, delay: 0.08, ease: [0.22, 1, 0.36, 1] }}
+          className={`hero-brand-title ${reduceMotion ? "hero-brand-reduced" : ""}`}
+          aria-label="Magma Blaze"
+        >
+          {BRAND_WORDS.map((word, wordIndex) => (
+            <span key={word.text} className={`hero-brand-word ${word.className}`} aria-hidden="true">
+              {word.text.split("").map((letter, letterIndex) => (
+                <span
+                  key={`${word.text}-${letterIndex}`}
+                  className="hero-brand-letter"
+                  style={{ "--brand-letter-index": wordIndex * 5 + letterIndex } as CSSProperties}
+                >
+                  {letter}
+                </span>
+              ))}
+            </span>
+          ))}
+          <span className="hero-brand-flare" aria-hidden="true" />
+        </motion.h1>
+        <motion.div initial={{ opacity: 0, scaleX: 0 }} animate={{ opacity: 1, scaleX: 1 }} transition={{ duration: 0.7, delay: 0.46 }} className="hero-brand-divider" />
         <motion.p initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.8, delay: 0.4 }} className="text-white/65 text-lg md:text-xl max-w-xl mx-auto mb-12 leading-relaxed">
           {t("hero.copy")}
         </motion.p>
@@ -41,12 +68,31 @@ export default function HeroSection() {
           <Link href="/catalogo" className="btn-ember text-base px-8 py-4">{t("hero.collection")} <ArrowRight className="w-4 h-4" /></Link>
           <Link href="/drops" className="btn-ghost text-base px-8 py-4"><Flame className="w-4 h-4" /> {t("hero.drops")}</Link>
         </motion.div>
-        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 1.5 }} className="pointer-events-none mt-10 flex flex-col items-center gap-2">
+        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 1.5 }} className="hero-scroll-cue pointer-events-none mt-10 flex flex-col items-center gap-1">
           <span className="text-xs text-white/25 uppercase tracking-widest">{t("hero.scroll")}</span>
-          <motion.div animate={{ y: [0, 8, 0] }} transition={{ repeat: Infinity, duration: 1.5 }} className="w-px h-8 bg-gradient-to-b from-transparent via-orange-400 to-transparent" />
+          <motion.div animate={reduceMotion ? undefined : { y: [0, 8, 0], opacity: [0.35, 1, 0.35] }} transition={{ repeat: Infinity, duration: 1.7, ease: "easeInOut" }} className="hero-scroll-chevron">
+            <ChevronDown size={18} />
+            <ChevronDown size={18} />
+          </motion.div>
         </motion.div>
       </div>
-      {showTop && <button onClick={()=>window.scrollTo({top:0,behavior:'smooth'})} className="fixed bottom-6 right-6 z-40 grid h-12 w-12 place-items-center rounded-full border border-white/10 bg-orange-500 text-black shadow-2xl shadow-orange-500/20"><ChevronUp /></button>}
+      <AnimatePresence>
+        {showTop ? (
+          <motion.button
+            initial={{ opacity: 0, y: 18, scale: 0.84 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 18, scale: 0.84 }}
+            whileHover={reduceMotion ? undefined : { y: -4, scale: 1.05 }}
+            whileTap={{ scale: 0.94 }}
+            onClick={() => window.scrollTo({ top: 0, behavior: reduceMotion ? "auto" : "smooth" })}
+            className="hero-back-to-top"
+            aria-label="Volver arriba"
+          >
+            <ChevronUp />
+            <span>Subir</span>
+          </motion.button>
+        ) : null}
+      </AnimatePresence>
     </section>
   );
 }

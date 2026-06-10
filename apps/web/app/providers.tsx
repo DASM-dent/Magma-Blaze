@@ -1,16 +1,33 @@
 'use client';
 
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { MutationCache, QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useState } from 'react';
-import { Toaster } from 'sonner';
+import { Toaster, toast } from 'sonner';
 import { AuthProvider } from '@/context/AuthContext';
 import { CartProvider } from '@/context/CartContext';
 import { FavoritesProvider } from '@/context/FavoritesContext';
 import { LocaleProvider } from '@/context/LocaleContext';
 import SiteGate from '@/components/drop/SiteGate';
 
+function mutationMessage(error: unknown) {
+  if (error instanceof Error && error.message) return error.message;
+  return 'No pudimos guardar el cambio. Revisa los datos e intenta nuevamente.';
+}
+
 export default function Providers({ children }: { children: React.ReactNode }) {
-  const [queryClient] = useState(() => new QueryClient());
+  const [queryClient] = useState(() => new QueryClient({
+    mutationCache: new MutationCache({
+      onError(error, _variables, _context, mutation) {
+        if (mutation.options.onError) return;
+        toast.error(mutationMessage(error));
+      },
+    }),
+    defaultOptions: {
+      mutations: {
+        retry: false,
+      },
+    },
+  }));
   return (
     <QueryClientProvider client={queryClient}>
       <AuthProvider>

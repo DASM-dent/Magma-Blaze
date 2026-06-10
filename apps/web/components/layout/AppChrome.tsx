@@ -4,6 +4,7 @@ import { usePathname } from "next/navigation";
 import Navbar from "@/components/layout/Navbar";
 import Footer from "@/components/layout/Footer";
 import MarketingPopup from "@/components/layout/MarketingPopup";
+import { ScrollDirectionProvider } from "@/components/ui/ScrollDirectionProvider";
 
 export default function AppChrome({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
@@ -14,11 +15,11 @@ export default function AppChrome({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <>
+    <ScrollDirectionProvider>
       <Navbar />
       <main>{children}</main>
       <Footer />
       <MarketingPopup />
-    </>
+    </ScrollDirectionProvider>
   );
 }

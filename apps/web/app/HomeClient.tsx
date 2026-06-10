@@ -6,6 +6,7 @@ import FeaturedProducts from '@/components/product/FeaturedProducts';
 import DropTeaser from '@/components/drop/DropTeaser';
 import CategoryGrid from '@/components/product/CategoryGrid';
 import { contentApi, dropApi } from '@/services/api';
+import ScrollReveal from '@/components/ui/ScrollReveal';
 
 type PublicSettings = {
   showModels?: boolean;
@@ -40,14 +41,14 @@ export default function HomeClient() {
       <HeroSection />
       {homeBlocks.map((block) => (
         <section key={block.id} className="px-4 py-16 text-white md:px-6">
-          <div className="mx-auto grid max-w-7xl gap-8 md:grid-cols-[1fr_.9fr] md:items-center">
+          <ScrollReveal className="mx-auto grid max-w-7xl gap-8 md:grid-cols-[1fr_.9fr] md:items-center">
             <div>
               <h2 className="text-3xl font-semibold md:text-5xl">{block.title}</h2>
               {block.subtitle && <p className="mt-4 text-lg text-orange-100/75">{block.subtitle}</p>}
               {block.body && <p className="mt-5 whitespace-pre-line leading-relaxed text-white/60">{block.body}</p>}
             </div>
             {block.imageUrl && <img src={block.imageUrl} alt={block.title} className="max-h-[440px] w-full object-cover" />}
-          </div>
+          </ScrollReveal>
         </section>
       ))}
       {settings.showDrops !== false && <DropTeaser />}

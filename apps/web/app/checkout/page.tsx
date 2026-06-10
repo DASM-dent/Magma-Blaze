@@ -7,10 +7,8 @@ import { useCart } from '@/context/CartContext';
 import { useStoreLocale } from '@/context/LocaleContext';
 import { createSharedCartUrl } from '@/lib/cartShare';
 import { cartOrderWhatsappUrl } from '@/lib/whatsapp';
+import { DOMINICAN_PROVINCES, US_STATES, municipalitiesFor } from '@/lib/locations';
 
-const rdProvinces = ['Azua','Baoruco','Barahona','Dajabon','Distrito Nacional','Duarte','El Seibo','Elias Piña','Espaillat','Hato Mayor','Hermanas Mirabal','Independencia','La Altagracia','La Romana','La Vega','Maria Trinidad Sanchez','Monseñor Nouel','Monte Cristi','Monte Plata','Pedernales','Peravia','Puerto Plata','Samana','San Cristobal','San Jose de Ocoa','San Juan','San Pedro de Macoris','Sanchez Ramirez','Santiago','Santiago Rodriguez','Santo Domingo','Valverde'];
-const usStates = ['Florida','New York','Texas','California','New Jersey','Pennsylvania','Massachusetts','Georgia','North Carolina','Virginia'];
-const rdCities: Record<string,string[]> = { 'Distrito Nacional':['Santo Domingo de Guzman'], 'Santo Domingo':['Santo Domingo Este','Santo Domingo Norte','Santo Domingo Oeste','Boca Chica'], Santiago:['Santiago de los Caballeros','Tamboril','Villa Gonzalez'], 'La Vega':['La Vega','Jarabacoa','Constanza'], 'La Altagracia':['Higuey','Bavaro','Punta Cana'], 'Puerto Plata':['Puerto Plata','Sosua','Cabarete'] };
 const usCities: Record<string,string[]> = { Florida:['Miami','Orlando','Tampa'], 'New York':['New York City','Buffalo','Albany'], Texas:['Houston','Dallas','Austin'], California:['Los Angeles','San Diego','San Francisco'], 'New Jersey':['Newark','Jersey City','Paterson'] };
 
 function Field({ label, children }: { label:string; children:React.ReactNode }) {
@@ -23,9 +21,9 @@ export default function CheckoutPage() {
   const [form, setForm] = useState({ country, province: country === 'RD' ? 'La Vega' : 'Florida', city: country === 'RD' ? 'La Vega' : 'Miami', addressLine: '', promoCode: '', paymentMethodId: '' });
   const [submitting, setSubmitting] = useState(false);
 
-  const provinceOptions = form.country === 'RD' ? rdProvinces : usStates;
+  const provinceOptions = form.country === 'RD' ? DOMINICAN_PROVINCES : US_STATES;
   const cityOptions = form.country === 'RD'
-    ? (rdCities[form.province] || (form.province ? [form.province] : []))
+    ? municipalitiesFor(form.province)
     : (usCities[form.province] || (form.province ? [form.province] : []));
   const subtotal = useMemo(() => cart.items.reduce((sum, item) => sum + item.unitPrice * item.quantity, 0), [cart.items]);
   const sharedCartUrl = useMemo(() => {
@@ -34,14 +32,18 @@ export default function CheckoutPage() {
   }, [cart.items, symbol]);
   const checkoutLines = () => [
     `${t('checkout.country')}: ${form.country}`,
-    `${t('checkout.province')}: ${form.province}`,
-    `${t('checkout.city')}: ${form.city}`,
+    `${form.country === 'RD' ? 'Provincia' : 'Estado'}: ${form.province}`,
+    `${form.country === 'RD' ? 'Municipio' : 'Ciudad'}: ${form.city}`,
     form.addressLine.trim() ? `${t('checkout.address')}: ${form.addressLine.trim()}` : '',
     form.promoCode.trim() ? `${t('checkout.promo')}: ${form.promoCode.trim()}` : '',
     'Estado: pendiente de confirmacion de la tienda',
   ];
   const submitOrder = async () => {
     if (!cart.items.length || submitting) return;
+    if (!form.province || !form.city) {
+      toast.error(`Selecciona ${form.country === 'RD' ? 'la provincia y el municipio' : 'el estado y la ciudad'}.`);
+      return;
+    }
     if (form.addressLine.trim().length < 5) {
       toast.error('Agrega una direccion de entrega.');
       return;
@@ -72,13 +74,17 @@ export default function CheckoutPage() {
                 <option value="US">{t('common.countryUS')}</option>
               </select>
             </Field>
-            <Field label={t('checkout.province')}>
-              <input list="checkout-provinces" className="input-dark" value={form.province} onChange={(e) => setForm({ ...form, province: e.target.value, city: '' })} />
-              <datalist id="checkout-provinces">{provinceOptions.map((item) => <option key={item} value={item} />)}</datalist>
+            <Field label={form.country === 'RD' ? 'Provincia' : 'Estado'}>
+              <select className="input-dark" value={form.province} onChange={(e) => setForm({ ...form, province: e.target.value, city: '' })}>
+                <option value="">Selecciona {form.country === 'RD' ? 'una provincia' : 'un estado'}</option>
+                {provinceOptions.map((item) => <option key={item} value={item}>{item}</option>)}
+              </select>
             </Field>
-            <Field label={t('checkout.city')}>
-              <input list="checkout-cities" className="input-dark" value={form.city} onChange={(e) => setForm({ ...form, city: e.target.value })} />
-              <datalist id="checkout-cities">{cityOptions.map((item) => <option key={item} value={item} />)}</datalist>
+            <Field label={form.country === 'RD' ? 'Municipio' : 'Ciudad'}>
+              {form.country === 'RD' ? <select className="input-dark" value={form.city} disabled={!form.province} onChange={(e) => setForm({ ...form, city: e.target.value })}>
+                <option value="">{form.province ? 'Selecciona un municipio' : 'Primero selecciona una provincia'}</option>
+                {cityOptions.map((item) => <option key={item} value={item}>{item}</option>)}
+              </select> : <input className="input-dark" value={form.city} onChange={(e) => setForm({ ...form, city: e.target.value })} placeholder="Ej. Miami" />}
             </Field>
             <Field label={t('checkout.promo')}>
               <input className="input-dark uppercase" value={form.promoCode} onChange={(e) => setForm({ ...form, promoCode: e.target.value.toUpperCase() })} placeholder="MAGMA10" />

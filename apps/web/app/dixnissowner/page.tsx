@@ -5,7 +5,9 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { API_URL, api } from '@/lib/api';
 import { useAuth } from '@/context/AuthContext';
+import { ModelProductTag } from '@/components/ModelProductTag';
 import { Activity, AlertTriangle, Bell, Boxes, CalendarDays, Check, CheckCircle2, ChevronDown, Eye, FileText, Flame, Inbox, LayoutDashboard, LifeBuoy, Lock, LogOut, Moon, PieChart, Plus, RotateCcw, Search, Server, Settings, ShieldCheck, ShoppingBag, Sun, Tag, Trash2, Truck, Users, Wallet, XCircle } from 'lucide-react';
+import { DOMINICAN_PROVINCES, US_STATES, municipalitiesFor } from '@/lib/locations';
 
 type Tab='overview'|'products'|'categories'|'orders'|'drops'|'models'|'content'|'popups'|'shipping'|'users'|'finance'|'reports'|'sales'|'notifications'|'coupons'|'inventory'|'settings'|'security'|'support'|'roles';
 const tabs:{key:Tab;label:string;icon:ReactNode;permission:string}[]=[
@@ -56,6 +58,44 @@ const getImageSize=(src:string)=>new Promise<{width:number;height:number}>((reso
   img.onerror=()=>reject(new Error('No se pudo leer el tamano de la imagen'));
   img.src=src;
 });
+type ModelCropSettings={zoom:number;positionX:number;positionY:number;width:number;height:number};
+const loadCropImage=(src:string)=>new Promise<HTMLImageElement>((resolve,reject)=>{
+  const img=new Image();
+  if(/^https?:\/\//i.test(src))img.crossOrigin='anonymous';
+  img.onload=()=>resolve(img);
+  img.onerror=()=>reject(new Error('No se pudo cargar la imagen para recortarla.'));
+  img.src=src;
+});
+function drawModelCrop(canvas:HTMLCanvasElement,img:HTMLImageElement,settings:ModelCropSettings){
+  const width=Math.max(1,Math.round(settings.width));
+  const height=Math.max(1,Math.round(settings.height));
+  const zoom=Math.max(1,Number(settings.zoom)||1);
+  const positionX=Math.max(0,Math.min(100,Number(settings.positionX)||0))/100;
+  const positionY=Math.max(0,Math.min(100,Number(settings.positionY)||0))/100;
+  const scale=Math.max(width/img.naturalWidth,height/img.naturalHeight)*zoom;
+  const drawWidth=img.naturalWidth*scale;
+  const drawHeight=img.naturalHeight*scale;
+  const offsetX=-Math.max(0,drawWidth-width)*positionX;
+  const offsetY=-Math.max(0,drawHeight-height)*positionY;
+  canvas.width=width;
+  canvas.height=height;
+  const context=canvas.getContext('2d');
+  if(!context)throw new Error('El navegador no pudo abrir el editor de imagen.');
+  context.clearRect(0,0,width,height);
+  context.imageSmoothingEnabled=true;
+  context.imageSmoothingQuality='high';
+  context.drawImage(img,offsetX,offsetY,drawWidth,drawHeight);
+}
+async function exportModelCrop(src:string,settings:ModelCropSettings){
+  const img=await loadCropImage(src);
+  const canvas=document.createElement('canvas');
+  drawModelCrop(canvas,img,settings);
+  try{
+    return canvas.toDataURL('image/webp',0.86);
+  }catch{
+    throw new Error('Esta URL no permite recorte por seguridad del navegador. Descarga la imagen y subela como archivo.');
+  }
+}
 const slugify=(v:string)=>v.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]+/g,'-').replace(/(^-|-$)+/g,'');
 
 const notificationTypeLabels:any={ORDER:'Pedidos',SUPPORT:'Ayuda',SALES:'Ventas',INVENTORY:'Inventario',SYSTEM:'Sistema'};
@@ -96,19 +136,24 @@ function adminDashboardError(error: unknown) {
 }
 function Field({label,children,hint}:{label:string;children:ReactNode;hint?:string}){return <label className="admin-field block"><span className="admin-field-label mb-2 block text-xs font-bold uppercase tracking-[.12em]">{label}</span>{children}{hint&&<span className="admin-field-hint mt-1 block text-xs">{hint}</span>}</label>}
 
-type AdminSelectOption={value:string;label:ReactNode;disabled?:boolean};
-function AdminSelect({value,onChange,options,className='',placeholder='Selecciona'}:{value:any;onChange:(value:string)=>void;options:AdminSelectOption[];className?:string;placeholder?:string}){
+type AdminSelectOption={value:string;label:ReactNode;disabled?:boolean;searchText?:string};
+function AdminSelect({value,onChange,options,className='',placeholder='Selecciona',searchable=false,searchPlaceholder='Buscar...'}:{value:any;onChange:(value:string)=>void;options:AdminSelectOption[];className?:string;placeholder?:string;searchable?:boolean;searchPlaceholder?:string}){
   const [open,setOpen]=useState(false);
+  const [query,setQuery]=useState('');
   const ref=useRef<HTMLDivElement|null>(null);
-  useEffect(()=>{if(!open)return;const close=(event:MouseEvent)=>{if(ref.current&&!ref.current.contains(event.target as Node))setOpen(false)};const key=(event:KeyboardEvent)=>{if(event.key==='Escape')setOpen(false)};document.addEventListener('mousedown',close);document.addEventListener('keydown',key);return()=>{document.removeEventListener('mousedown',close);document.removeEventListener('keydown',key);};},[open]);
+  useEffect(()=>{if(!open){setQuery('');return;}const close=(event:MouseEvent)=>{if(ref.current&&!ref.current.contains(event.target as Node))setOpen(false)};const key=(event:KeyboardEvent)=>{if(event.key==='Escape')setOpen(false)};document.addEventListener('mousedown',close);document.addEventListener('keydown',key);return()=>{document.removeEventListener('mousedown',close);document.removeEventListener('keydown',key);};},[open]);
   const current=options.find(option=>String(option.value)===String(value));
+  const normalizedQuery=query.trim().toLowerCase();
+  const filteredOptions=normalizedQuery?options.filter(option=>String(option.searchText??(typeof option.label==='string'?option.label:option.value)).toLowerCase().includes(normalizedQuery)):options;
   return <div ref={ref} className={'admin-select '+(open?'is-open ':'')+className}>
     <button type="button" className="admin-select-trigger" onClick={()=>setOpen(current=>!current)} aria-haspopup="listbox" aria-expanded={open}>
       <span className={current?'admin-select-value':'admin-select-placeholder'}>{current?.label||placeholder}</span>
       <ChevronDown size={16} className="admin-select-chevron"/>
     </button>
     {open&&<div className="admin-select-menu" role="listbox">
-      {options.map(option=>{const selected=String(option.value)===String(value);return <button key={option.value||'empty'} type="button" disabled={option.disabled} role="option" aria-selected={selected} className={'admin-select-option '+(selected?'is-selected':'')} onClick={()=>{if(option.disabled)return;onChange(option.value);setOpen(false);}}><span>{option.label}</span>{selected&&<Check size={15}/>}</button>})}
+      {searchable&&<div className="admin-select-search"><Search size={15}/><input autoFocus value={query} onChange={event=>setQuery(event.target.value)} placeholder={searchPlaceholder}/></div>}
+      {filteredOptions.map(option=>{const selected=String(option.value)===String(value);return <button key={option.value||'empty'} type="button" disabled={option.disabled} role="option" aria-selected={selected} className={'admin-select-option '+(selected?'is-selected':'')} onClick={()=>{if(option.disabled)return;onChange(option.value);setOpen(false);}}><span>{option.label}</span>{selected&&<Check size={15}/>}</button>})}
+      {!filteredOptions.length&&<p className="admin-select-empty">No encontramos coincidencias.</p>}
     </div>}
   </div>;
 }
@@ -228,11 +273,66 @@ function MarketingPopupsTab(){
   const position=(x:number,y:number)=>({left:`${x}%`,top:`${y}%`});
   return <div className="space-y-6"><Toolbar title="Novedades emergentes" subtitle="Crea popups con imagen, texto movible, delay y botones con acciones personalizadas."/><Panel title={f.id?'Editar novedad':'Crear novedad'} action={<span className={`rounded-full px-4 py-2 text-xs font-black uppercase tracking-[.14em] ${f.isActive?'bg-green-500/15 text-green-200':'bg-white/10 text-white/55'}`}>{f.isActive?'Activa':'Borrador'}</span>}><div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(420px,.9fr)]"><div className="space-y-5"><div className="grid gap-4 md:grid-cols-2"><Field label="Nombre interno"><input className="input-dark" value={f.name} onChange={e=>setF({...f,name:e.target.value})}/></Field><Field label="Estado"><AdminSelect value={String(f.isActive)} onChange={value=>setF({...f,isActive:value==='true'})} options={[{value:'false',label:'Borrador / oculto'},{value:'true',label:'Activo en la tienda'}]}/></Field><Field label="Retraso para aparecer (segundos)"><input type="number" min={0} max={120} className="input-dark" value={f.delaySeconds} onChange={e=>setF({...f,delaySeconds:Number(e.target.value)})}/></Field><Field label="Mostrar al cliente"><AdminSelect value={String(f.showOnce)} onChange={value=>setF({...f,showOnce:value==='true'})} options={[{value:'true',label:'Una vez por navegador'},{value:'false',label:'Cada visita'}]}/></Field><Field label="Inicio opcional"><input type="datetime-local" className="input-dark" value={f.startsAt||''} onChange={e=>setF({...f,startsAt:e.target.value})}/></Field><Field label="Fin opcional"><input type="datetime-local" className="input-dark" value={f.endsAt||''} onChange={e=>setF({...f,endsAt:e.target.value})}/></Field></div><div className="grid gap-4 md:grid-cols-3"><Field label="Subir imagen / fondo"><input type="file" accept="image/*" className="input-dark" onChange={e=>uploadImage(e.target.files?.[0])}/></Field><Field label="Modo de dimensiones"><AdminSelect value={f.useImageDimensions?'image':'custom'} onChange={value=>{const useImage=value==='image';setF({...f,useImageDimensions:useImage,...(useImage&&f.imageNaturalWidth&&f.imageNaturalHeight?{width:f.imageNaturalWidth,height:f.imageNaturalHeight}:{})})}} options={[{value:'custom',label:'Dimensiones personalizadas'},{value:'image',label:'Usar dimensiones de la imagen'}]}/></Field><Field label="URL de imagen"><input className="input-dark" value={f.imageUrl||''} onChange={e=>setF({...f,imageUrl:e.target.value})}/></Field><Field label="Ancho popup px"><input type="number" className="input-dark" value={f.width} onChange={e=>setF({...f,width:Number(e.target.value)})}/></Field><Field label="Alto popup px"><input type="number" className="input-dark" value={f.height} onChange={e=>setF({...f,height:Number(e.target.value)})}/></Field><Field label="Capa oscura / overlay" hint="Ej: rgba(0,0,0,0.38)"><input className="input-dark" value={f.overlayColor} onChange={e=>setF({...f,overlayColor:e.target.value})}/></Field></div><div className="grid gap-4 md:grid-cols-3"><Field label="Titulo"><input className="input-dark" value={f.title} onChange={e=>setF({...f,title:e.target.value})}/></Field><Field label="Subtitulo"><input className="input-dark" value={f.subtitle||''} onChange={e=>setF({...f,subtitle:e.target.value})}/></Field><Field label="Texto extra"><input className="input-dark" value={f.body||''} onChange={e=>setF({...f,body:e.target.value})}/></Field></div><div className="grid gap-4 md:grid-cols-3"><Field label="Color fondo"><input type="color" className="input-dark h-12 p-1" value={f.backgroundColor} onChange={e=>setF({...f,backgroundColor:e.target.value})}/></Field><Field label="Color titulo"><input type="color" className="input-dark h-12 p-1" value={f.titleColor} onChange={e=>setF({...f,titleColor:e.target.value})}/></Field><Field label="Color subtitulo"><input type="color" className="input-dark h-12 p-1" value={f.subtitleColor} onChange={e=>setF({...f,subtitleColor:e.target.value})}/></Field><Field label="Color texto extra"><input type="color" className="input-dark h-12 p-1" value={f.bodyColor} onChange={e=>setF({...f,bodyColor:e.target.value})}/></Field></div><div className="grid gap-4 md:grid-cols-4"><Field label="Titulo X"><input type="range" min={0} max={100} value={f.titleX} onChange={e=>setF({...f,titleX:Number(e.target.value)})}/></Field><Field label="Titulo Y"><input type="range" min={0} max={100} value={f.titleY} onChange={e=>setF({...f,titleY:Number(e.target.value)})}/></Field><Field label="Subtitulo X"><input type="range" min={0} max={100} value={f.subtitleX} onChange={e=>setF({...f,subtitleX:Number(e.target.value)})}/></Field><Field label="Subtitulo Y"><input type="range" min={0} max={100} value={f.subtitleY} onChange={e=>setF({...f,subtitleY:Number(e.target.value)})}/></Field><Field label="Texto X"><input type="range" min={0} max={100} value={f.bodyX} onChange={e=>setF({...f,bodyX:Number(e.target.value)})}/></Field><Field label="Texto Y"><input type="range" min={0} max={100} value={f.bodyY} onChange={e=>setF({...f,bodyY:Number(e.target.value)})}/></Field><Field label="Botones X"><input type="range" min={0} max={100} value={f.buttonsX} onChange={e=>setF({...f,buttonsX:Number(e.target.value)})}/></Field><Field label="Botones Y"><input type="range" min={0} max={100} value={f.buttonsY} onChange={e=>setF({...f,buttonsY:Number(e.target.value)})}/></Field></div><div className="grid gap-4 md:grid-cols-2"><Panel title="Boton principal"><div className="grid gap-4 md:grid-cols-2"><Field label="Texto"><input className="input-dark" value={f.primaryLabel} onChange={e=>setF({...f,primaryLabel:e.target.value})}/></Field><Field label="Accion"><AdminSelect value={f.primaryAction} onChange={value=>setF({...f,primaryAction:value})} options={popupActionOptions}/></Field><Field label="Enlace / WhatsApp"><input className="input-dark" value={f.primaryUrl||''} onChange={e=>setF({...f,primaryUrl:e.target.value})}/></Field><Field label="Color boton"><input type="color" className="input-dark h-12 p-1" value={f.primaryBgColor} onChange={e=>setF({...f,primaryBgColor:e.target.value})}/></Field><Field label="Color texto"><input type="color" className="input-dark h-12 p-1" value={f.primaryTextColor} onChange={e=>setF({...f,primaryTextColor:e.target.value})}/></Field></div></Panel><Panel title="Boton secundario"><div className="grid gap-4 md:grid-cols-2"><Field label="Texto"><input className="input-dark" value={f.secondaryLabel||''} onChange={e=>setF({...f,secondaryLabel:e.target.value})}/></Field><Field label="Accion"><AdminSelect value={f.secondaryAction} onChange={value=>setF({...f,secondaryAction:value})} options={popupActionOptions}/></Field><Field label="Enlace opcional"><input className="input-dark" value={f.secondaryUrl||''} onChange={e=>setF({...f,secondaryUrl:e.target.value})}/></Field><Field label="Fondo boton"><input className="input-dark" value={f.secondaryBgColor} onChange={e=>setF({...f,secondaryBgColor:e.target.value})}/></Field><Field label="Color texto"><input type="color" className="input-dark h-12 p-1" value={f.secondaryTextColor} onChange={e=>setF({...f,secondaryTextColor:e.target.value})}/></Field></div></Panel></div><div className="flex flex-wrap gap-3"><button className="btn-ember justify-center" onClick={()=>save.mutate(f)}>{f.id?'Guardar cambios':'Crear novedad'}</button>{f.id&&<button className="btn-ghost justify-center" onClick={()=>setF(popupBlank)}>Cancelar edicion</button>}</div></div><div className="rounded-[1.6rem] border border-white/10 bg-black/30 p-4"><div className="mb-3 flex items-center justify-between gap-3"><b>Vista previa</b><span className="admin-muted text-xs">{f.width} x {f.height}px</span></div><div className="relative mx-auto w-full overflow-hidden rounded-[1.35rem] border border-orange-200/20 shadow-2xl" style={previewStyle}>{f.imageUrl&&<img src={f.imageUrl} className="absolute inset-0 h-full w-full object-cover" alt="Preview popup"/>}<div className="absolute inset-0" style={{background:f.overlayColor}}/><h3 className="absolute max-w-[86%] -translate-x-1/2 -translate-y-1/2 text-center text-[clamp(1.8rem,5vw,3.6rem)] font-black uppercase leading-[.95]" style={{...position(f.titleX,f.titleY),color:f.titleColor}}>{f.title}</h3>{f.subtitle&&<p className="absolute max-w-[80%] -translate-x-1/2 -translate-y-1/2 text-center text-xl font-extrabold" style={{...position(f.subtitleX,f.subtitleY),color:f.subtitleColor}}>{f.subtitle}</p>}{f.body&&<p className="absolute max-w-[78%] -translate-x-1/2 -translate-y-1/2 whitespace-pre-line text-center text-base font-bold" style={{...position(f.bodyX,f.bodyY),color:f.bodyColor}}>{f.body}</p>}<div className="absolute flex -translate-x-1/2 -translate-y-1/2 flex-wrap items-center justify-center gap-3" style={position(f.buttonsX,f.buttonsY)}><span className="rounded-xl px-5 py-3 text-xs font-black uppercase tracking-[.16em]" style={{background:f.primaryBgColor,color:f.primaryTextColor}}>{f.primaryLabel}</span>{f.secondaryLabel&&<span className="rounded-xl border border-white/20 px-4 py-2 text-xs font-bold" style={{background:f.secondaryBgColor,color:f.secondaryTextColor}}>{f.secondaryLabel}</span>}</div></div><p className="admin-muted mt-4 text-sm">La posicion se controla con los sliders. En movil el popup se ajusta al ancho disponible sin perder proporciones.</p></div></div></Panel><Panel title="Novedades guardadas">{data.map((popup:any)=><div key={popup.id} className="mb-3 grid gap-3 rounded-2xl bg-black/30 p-4 lg:grid-cols-[90px_1fr_auto]"><div className="h-20 overflow-hidden rounded-2xl bg-white/5">{popup.imageUrl?<img src={popup.imageUrl} className="h-full w-full object-cover"/>:<div className="grid h-full place-items-center text-xs text-white/35">Sin imagen</div>}</div><div><b>{popup.name}</b><p className="text-sm text-white/45">{popup.title} · aparece en {popup.delaySeconds}s · {popup.showOnce?'una vez por navegador':'cada visita'}</p><p className={popup.isActive?'text-sm text-green-200':'text-sm text-white/35'}>{popup.isActive?'Activo en tienda':'Oculto'}</p></div><div className="flex flex-wrap items-center gap-2"><button className="btn-ghost" onClick={()=>edit(popup)}>Editar</button><button className="btn-ghost" onClick={()=>toggleActive.mutate({id:popup.id,isActive:!popup.isActive})}>{popup.isActive?'Desactivar':'Activar'}</button><button className="btn-ghost" onClick={()=>testPopup(popup)}>Probar en tienda</button><button className="rounded-full bg-red-500/10 px-4 py-2 text-sm text-red-200" onClick={()=>{if(confirm('Eliminar esta novedad emergente?'))del.mutate(popup.id)}}>Eliminar</button></div></div>)}{!data.length&&<Empty text="Todavia no has creado novedades emergentes."/>}</Panel></div>
 }
-function ContentTab(){const qc=useQueryClient();const [q,setQ]=useState('');const [area,setArea]=useState('HOME');const areas=['HOME','NEWS','FOOTER_SUPPORT','FAQ','CONTACT','SHIPPING_INFO','RETURNS','ABOUT','PRIVACY','TERMS'];const labels:any={HOME:'Home',NEWS:'Novedades',FOOTER_SUPPORT:'Footer / soporte',PRIVACY:'Privacidad',TERMS:'Términos',FAQ:'Preguntas frecuentes',CONTACT:'Contacto',SHIPPING_INFO:'Información de envíos',RETURNS:'Devoluciones',ABOUT:'Sobre nosotros'};const {data=[]}=useQuery({queryKey:['admin-content'],queryFn:()=>api<any[]>('/admin/content')});const blank={id:'',area:'HOME',title:'',subtitle:'',body:'',url:'',imageUrl:'',sortOrder:0,isActive:true};const [f,setF]=useState<any>({...blank,area});const filtered=data.filter((b:any)=>b.area===area).filter((b:any)=>`${b.title} ${b.body||''}`.toLowerCase().includes(q.toLowerCase()));const save=useMutation({mutationFn:(p:any)=>api(p.id?`/admin/content/${p.id}`:'/admin/content',{method:p.id?'PATCH':'POST',body:JSON.stringify({...p,area,id:undefined})}),onSuccess:()=>{qc.invalidateQueries({queryKey:['admin-content']});toast.success('Contenido guardado');setF({...blank,area})}});const del=useMutation({mutationFn:(id:string)=>api('/admin/content/'+id,{method:'DELETE'}),onSuccess:()=>{qc.invalidateQueries({queryKey:['admin-content']});toast.success('Bloque eliminado')}});return <div><Toolbar title="Contenido editable" subtitle="Controla Home, novedades, footer, FAQ, contacto, envíos, devoluciones, privacidad y términos." search={q} setSearch={setQ}/><div className="mb-6 grid gap-3 md:grid-cols-3 xl:grid-cols-4">{areas.map(a=><button key={a} onClick={()=>{setArea(a);setF({...blank,area:a})}} className={`rounded-3xl border p-5 text-left ${area===a?'border-orange-400 bg-orange-500 text-black':'border-white/10 bg-white/[.035]'}`}><b>{labels[a]}</b><p className="text-sm opacity-70">{data.filter((x:any)=>x.area===a).length} bloques</p></button>)}</div><Panel title={`${f.id?'Editando bloque':'Crear bloque'} · ${labels[area]}`}><div className="grid gap-4 md:grid-cols-3"><Field label="Título"><input className="input-dark" value={f.title} onChange={e=>setF({...f,title:e.target.value})}/></Field><Field label="Orden"><input type="number" className="input-dark" value={f.sortOrder} onChange={e=>setF({...f,sortOrder:Number(e.target.value)})}/></Field><Field label="Estado"><AdminSelect value={String(f.isActive)} onChange={value=>setF({...f,isActive:value==="true"})} options={[{value:"true",label:"Visible"},{value:"false",label:"Oculto"}]}/></Field><Field label="Subtítulo"><input className="input-dark" value={f.subtitle||''} onChange={e=>setF({...f,subtitle:e.target.value})}/></Field><Field label="URL"><input className="input-dark" value={f.url||''} onChange={e=>setF({...f,url:e.target.value})}/></Field><Field label="Imagen"><input className="input-dark" type="file" accept="image/*" onChange={async e=>{const file=e.target.files?.[0];if(file)setF({...f,imageUrl:await readFile(file)})}}/></Field><div className="md:col-span-3"><Field label="Contenido"><textarea className="input-dark min-h-[120px]" value={f.body||''} onChange={e=>setF({...f,body:e.target.value})}/></Field></div><button className="btn-ember justify-center max-w-xs" onClick={()=>save.mutate(f)}>{f.id?'Guardar cambios':'Crear bloque'}</button>{f.id&&<button className="btn-ghost justify-center max-w-xs" onClick={()=>setF({...blank,area})}>Cancelar edición</button>}</div></Panel><div className="mt-6 grid gap-3">{filtered.map((b:any)=><div key={b.id} className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-white/10 bg-black/30 p-4"><div><b>{b.title}</b><p className="text-sm text-white/45">{labels[b.area]} · orden {b.sortOrder} · {b.isActive?'visible':'oculto'}</p></div><div className="flex gap-2"><button className="rounded-full bg-white/10 px-4 py-2 text-sm" onClick={()=>setF(b)}>Editar</button><button className="rounded-full bg-red-500/10 px-4 py-2 text-sm text-red-200" onClick={()=>del.mutate(b.id)}>Eliminar</button></div></div>)}{!filtered.length&&<Empty text="No hay bloques en esta área."/>}</div></div>}
-function ShippingTab(){const qc=useQueryClient();const [q,setQ]=useState('');const {data=[]}=useQuery({queryKey:['admin-shipping'],queryFn:()=>api<any[]>('/admin/shipping')});const blank={id:'',country:'RD',province:'',city:'',price:0,currency:'DOP',requiresConfirmation:false,active:true};const [f,setF]=useState<any>(blank);const save=useMutation({mutationFn:(p:any)=>api(p.id?`/admin/shipping/${p.id}`:'/admin/shipping',{method:p.id?'PATCH':'POST',body:JSON.stringify({...p,id:undefined})}),onSuccess:()=>{qc.invalidateQueries({queryKey:['admin-shipping']});toast.success('Envío guardado');setF(blank)}});const del=useMutation({mutationFn:(id:string)=>api('/admin/shipping/'+id,{method:'DELETE'}),onSuccess:()=>{qc.invalidateQueries({queryKey:['admin-shipping']});toast.success('Zona eliminada')}});return <div><Toolbar title="Envíos" subtitle="Edita tarifas RD/USA. Si no hay precio registrado, el pedido queda pendiente de confirmación." search={q} setSearch={setQ}/><Panel title={f.id?'Editar zona de envío':'Crear zona de envío'}><div className="grid gap-4 md:grid-cols-4"><Field label="País"><AdminSelect value={f.country} onChange={value=>setF({...f,country:value,currency:value==="US"?"USD":"DOP"})} options={[{value:"RD",label:"República Dominicana"},{value:"US",label:"Estados Unidos"}]}/></Field><Field label="Provincia / Estado"><input className="input-dark" value={f.province||''} onChange={e=>setF({...f,province:e.target.value})}/></Field><Field label="Ciudad / Municipio"><input className="input-dark" value={f.city||''} onChange={e=>setF({...f,city:e.target.value})}/></Field><Field label="Precio de envío"><input type="number" className="input-dark" value={f.price} onChange={e=>setF({...f,price:Number(e.target.value)})}/></Field><Field label="Moneda"><AdminSelect value={f.currency} onChange={value=>setF({...f,currency:value})} options={[{value:"DOP",label:"RD$"},{value:"USD",label:"US$"}]}/></Field><label className="text-sm text-white/60 self-end"><input type="checkbox" className="mr-2" checked={f.requiresConfirmation} onChange={e=>setF({...f,requiresConfirmation:e.target.checked})}/> Requiere confirmación</label><label className="text-sm text-white/60 self-end"><input type="checkbox" className="mr-2" checked={f.active} onChange={e=>setF({...f,active:e.target.checked})}/> Activo</label><button className="btn-ember justify-center self-end" onClick={()=>save.mutate(f)}>{f.id?'Guardar cambios':'Crear zona'}</button></div></Panel><div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-3">{data.filter((z:any)=>`${z.country} ${z.province||''} ${z.city||''}`.toLowerCase().includes(q.toLowerCase())).map((z:any)=><div key={z.id} className="rounded-3xl border border-white/10 bg-white/[.03] p-5"><b>{z.country==='RD'?z.province||'RD':'Estados Unidos / casillero'}</b><p className="text-sm text-white/45">{z.city||'Sin ciudad'} · {z.requiresConfirmation?'por confirmar':'tarifa fija'} · {z.active?'activo':'inactivo'}</p><p className="mt-3 text-2xl font-black">{z.price?money(z.price,z.currency==='USD'?'US$':'RD$'):'Por confirmar'}</p><div className="mt-4 flex gap-2"><button className="rounded-full bg-white/10 px-4 py-2 text-sm" onClick={()=>setF(z)}>Editar</button><button className="rounded-full bg-red-500/10 px-4 py-2 text-sm text-red-200" onClick={()=>del.mutate(z.id)}>Eliminar</button></div></div>)}{!data.length&&<Empty text="Aún no has creado zonas de envío."/>}</div></div>}
+function ContentTab(){const qc=useQueryClient();const [q,setQ]=useState('');const [area,setArea]=useState('HOME');const areas=['HOME','NEWS','FOOTER_SUPPORT','FAQ','CONTACT','SHIPPING_INFO','ABOUT','PRIVACY','TERMS'];const labels:any={HOME:'Home',NEWS:'Novedades',FOOTER_SUPPORT:'Footer / soporte',PRIVACY:'Privacidad',TERMS:'Términos, cambios y devoluciones',FAQ:'Preguntas frecuentes',CONTACT:'Contacto',SHIPPING_INFO:'Página pública de envíos',ABOUT:'Sobre nosotros'};const {data=[]}=useQuery({queryKey:['admin-content'],queryFn:()=>api<any[]>('/admin/content')});const blank={id:'',area:'HOME',title:'',subtitle:'',body:'',url:'',imageUrl:'',sortOrder:0,isActive:true};const [f,setF]=useState<any>({...blank,area});const filtered=data.filter((b:any)=>b.area===area).filter((b:any)=>`${b.title} ${b.body||''}`.toLowerCase().includes(q.toLowerCase()));const save=useMutation({mutationFn:(p:any)=>api(p.id?`/admin/content/${p.id}`:'/admin/content',{method:p.id?'PATCH':'POST',body:JSON.stringify({...p,area,id:undefined})}),onSuccess:()=>{qc.invalidateQueries({queryKey:['admin-content']});toast.success('Contenido guardado');setF({...blank,area})}});const del=useMutation({mutationFn:(id:string)=>api('/admin/content/'+id,{method:'DELETE'}),onSuccess:()=>{qc.invalidateQueries({queryKey:['admin-content']});toast.success('Bloque eliminado')}});return <div><Toolbar title="Contenido editable" subtitle="Controla Home, novedades, footer, FAQ, contacto, página de envíos, nosotros, privacidad y términos." search={q} setSearch={setQ}/><div className="mb-6 grid gap-3 md:grid-cols-3 xl:grid-cols-4">{areas.map(a=><button key={a} onClick={()=>{setArea(a);setF({...blank,area:a})}} className={`rounded-3xl border p-5 text-left ${area===a?'border-orange-400 bg-orange-500 text-black':'border-white/10 bg-white/[.035]'}`}><b>{labels[a]}</b><p className="text-sm opacity-70">{data.filter((x:any)=>x.area===a).length} bloques</p></button>)}</div>{area==='SHIPPING_INFO'&&<div className="mb-5 rounded-2xl border border-blue-400/20 bg-blue-500/10 p-4 text-sm text-blue-50">Aquí editas los textos de la página pública. Las ciudades, provincias y precios se gestionan en <b>Zonas y tarifas de envío</b>.</div>}<Panel title={`${f.id?'Editando bloque':'Crear bloque'} · ${labels[area]}`}><div className="grid gap-4 md:grid-cols-3"><Field label="Título"><input className="input-dark" value={f.title} onChange={e=>setF({...f,title:e.target.value})}/></Field><Field label="Orden"><input type="number" className="input-dark" value={f.sortOrder} onChange={e=>setF({...f,sortOrder:Number(e.target.value)})}/></Field><Field label="Estado"><AdminSelect value={String(f.isActive)} onChange={value=>setF({...f,isActive:value==="true"})} options={[{value:"true",label:"Visible"},{value:"false",label:"Oculto"}]}/></Field><Field label="Subtítulo"><input className="input-dark" value={f.subtitle||''} onChange={e=>setF({...f,subtitle:e.target.value})}/></Field><Field label="URL"><input className="input-dark" value={f.url||''} onChange={e=>setF({...f,url:e.target.value})}/></Field><Field label="Imagen"><input className="input-dark" type="file" accept="image/*" onChange={async e=>{const file=e.target.files?.[0];if(file)setF({...f,imageUrl:await readFile(file)})}}/></Field><div className="md:col-span-3"><Field label="Contenido"><textarea className="input-dark min-h-[120px]" value={f.body||''} onChange={e=>setF({...f,body:e.target.value})}/></Field></div><button className="btn-ember justify-center max-w-xs" onClick={()=>save.mutate(f)}>{f.id?'Guardar cambios':'Crear bloque'}</button>{f.id&&<button className="btn-ghost justify-center max-w-xs" onClick={()=>setF({...blank,area})}>Cancelar edición</button>}</div></Panel><div className="mt-6 grid gap-3">{filtered.map((b:any)=><div key={b.id} className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-white/10 bg-black/30 p-4"><div><b>{b.title}</b><p className="text-sm text-white/45">{labels[b.area]} · orden {b.sortOrder} · {b.isActive?'visible':'oculto'}</p></div><div className="flex gap-2"><button className="rounded-full bg-white/10 px-4 py-2 text-sm" onClick={()=>setF(b)}>Editar</button><button className="rounded-full bg-red-500/10 px-4 py-2 text-sm text-red-200" onClick={()=>del.mutate(b.id)}>Eliminar</button></div></div>)}{!filtered.length&&<Empty text="No hay bloques en esta área."/>}</div></div>}
+function ShippingTabV2(){
+  const qc=useQueryClient();
+  const [q,setQ]=useState('');
+  const {data=[]}=useQuery({queryKey:['admin-shipping'],queryFn:()=>api<any[]>('/admin/shipping')});
+  const blank={id:'',country:'RD',province:'',city:'',price:0,currency:'DOP',requiresConfirmation:false,active:true};
+  const [f,setF]=useState<any>(blank);
+  const provinceValues=f.country==='RD'?DOMINICAN_PROVINCES:[...US_STATES];
+  const municipalityValues=f.country==='RD'?municipalitiesFor(f.province):[];
+  const provinceOptions=[...(!provinceValues.includes(f.province)&&f.province?[f.province]:[]),...provinceValues].map(value=>({value,label:value,searchText:value}));
+  const municipalityOptions=f.province?[
+    {value:'__ALL_PROVINCE__',label:'Toda la provincia',searchText:'toda provincia general'},
+    ...[...(!municipalityValues.includes(f.city)&&f.city&&f.city!=='__ALL_PROVINCE__'?[f.city]:[]),...municipalityValues].map(value=>({value,label:value,searchText:value})),
+  ]:[];
+  const save=useMutation({
+    mutationFn:(p:any)=>api(p.id?`/admin/shipping/${p.id}`:'/admin/shipping',{method:p.id?'PATCH':'POST',body:JSON.stringify({...p,city:p.city==='__ALL_PROVINCE__'?null:p.city,id:undefined})}),
+    onSuccess:()=>{qc.invalidateQueries({queryKey:['admin-shipping']});qc.invalidateQueries({queryKey:['public-shipping-zones']});toast.success('Zona y tarifa guardadas');setF(blank)},
+    onError:(error:any)=>toast.error(error.message||'No se pudo guardar la zona.'),
+  });
+  const del=useMutation({
+    mutationFn:(id:string)=>api('/admin/shipping/'+id,{method:'DELETE'}),
+    onSuccess:()=>{qc.invalidateQueries({queryKey:['admin-shipping']});qc.invalidateQueries({queryKey:['public-shipping-zones']});toast.success('Zona eliminada')},
+    onError:(error:any)=>toast.error(error.message||'No se pudo eliminar la zona.'),
+  });
+  const submit=()=>{
+    if(!f.province)return toast.error(`Selecciona ${f.country==='RD'?'una provincia':'un estado'}.`);
+    if(!f.city)return toast.error(`Selecciona ${f.country==='RD'?'un municipio o toda la provincia':'una ciudad'}.`);
+    save.mutate(f);
+  };
+  const filtered=data.filter((zone:any)=>`${zone.country} ${zone.province||''} ${zone.city||''}`.toLowerCase().includes(q.toLowerCase()));
+  return <div>
+    <Toolbar title="Zonas y tarifas de envío" subtitle="Relaciona cada municipio con su provincia. Las zonas activas aparecen automáticamente en la página pública de Envíos." search={q} setSearch={setQ}/>
+    <Panel title={f.id?'Editar zona de envío':'Crear zona de envío'}>
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <Field label="País"><AdminSelect value={f.country} onChange={country=>setF({...f,country,province:'',city:'',currency:country==='US'?'USD':'DOP'})} options={[{value:'RD',label:'República Dominicana'},{value:'US',label:'Estados Unidos'}]}/></Field>
+        <Field label={f.country==='RD'?'Provincia':'Estado'} hint={f.country==='RD'?'División territorial principal de República Dominicana.':'Estado de destino.'}><AdminSelect searchable searchPlaceholder={f.country==='RD'?'Buscar provincia...':'Buscar estado...'} value={f.province} onChange={province=>setF({...f,province,city:''})} options={provinceOptions} placeholder={`Selecciona ${f.country==='RD'?'una provincia':'un estado'}`}/></Field>
+        <Field label={f.country==='RD'?'Municipio':'Ciudad'} hint={f.country==='RD'?'Solo aparecen municipios de la provincia seleccionada; también puedes aplicar una tarifa general.':'Escribe la ciudad de destino.'}>{f.country==='RD'?<AdminSelect searchable searchPlaceholder="Buscar municipio..." value={f.city} onChange={city=>setF({...f,city})} options={municipalityOptions} placeholder={f.province?'Selecciona un municipio':'Primero selecciona una provincia'}/>:<input className="input-dark" value={f.city||''} onChange={event=>setF({...f,city:event.target.value})} placeholder="Ej. Miami"/>}</Field>
+        <Field label="Precio de envío"><input type="number" min="0" step="0.01" className="input-dark" value={f.price} onChange={event=>setF({...f,price:Number(event.target.value)})}/></Field>
+        <Field label="Moneda"><AdminSelect value={f.currency} onChange={currency=>setF({...f,currency})} options={[{value:'DOP',label:'RD$ / DOP'},{value:'USD',label:'US$ / USD'}]}/></Field>
+        <label className="admin-choice self-end"><input type="checkbox" checked={f.requiresConfirmation} onChange={event=>setF({...f,requiresConfirmation:event.target.checked})}/><span><b>Requiere confirmación</b><small>La tarifa se coordina antes de finalizar.</small></span></label>
+        <label className="admin-choice self-end"><input type="checkbox" checked={f.active} onChange={event=>setF({...f,active:event.target.checked})}/><span><b>Activo y visible</b><small>Se mostrará en la página pública.</small></span></label>
+        <button className="btn-ember justify-center self-end" onClick={submit} disabled={save.isPending}>{save.isPending?'Guardando...':f.id?'Guardar cambios':'Crear zona'}</button>
+      </div>
+    </Panel>
+    <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+      {filtered.map((zone:any)=><article key={zone.id} className="admin-shipping-card">
+        <div className="admin-shipping-card-head"><span><Truck size={18}/></span><small>{zone.country==='RD'?'República Dominicana':'Estados Unidos'}</small></div>
+        <h3>{zone.city||(zone.country==='RD'?'Toda la provincia':'Destino general')}</h3>
+        <p>{zone.country==='RD'?(zone.city?'Municipio de':'Tarifa general para'):'Ciudad en'} <b>{zone.province||'ubicación no definida'}</b></p>
+        <div className="admin-shipping-card-meta"><span>{zone.requiresConfirmation?'Tarifa por confirmar':'Tarifa fija'}</span><span className={zone.active?'is-active':'is-hidden'}>{zone.active?'Visible':'Oculto'}</span></div>
+        <strong>{zone.requiresConfirmation&&!zone.price?'Por confirmar':money(zone.price,zone.currency==='USD'?'US$':'RD$')}</strong>
+        <div className="mt-4 flex gap-2"><button className="btn-ghost" onClick={()=>setF({...zone,city:zone.city||'__ALL_PROVINCE__'})}>Editar</button><button className="rounded-full bg-red-500/10 px-4 py-2 text-sm text-red-200" onClick={()=>del.mutate(zone.id)}>Eliminar</button></div>
+      </article>)}
+      {!filtered.length&&<Empty text={data.length?'No hay zonas que coincidan con la búsqueda.':'Aún no has creado zonas de envío.'}/>}
+    </div>
+  </div>;
+}
 function UsersTab(){const qc=useQueryClient();const [q,setQ]=useState('');const [role,setRole]=useState('');const [blocked,setBlocked]=useState('');const [show,setShow]=useState(false);const {data=[]}=useQuery({queryKey:['admin-users',q,role,blocked],queryFn:()=>api<any[]>(`/admin/users?q=${encodeURIComponent(q)}&role=${encodeURIComponent(role)}&blocked=${encodeURIComponent(blocked)}`)});const blank={name:'',email:'',password:'',role:'CUSTOMER',isVerified:true};const [f,setF]=useState<any>(blank);const create=useMutation({mutationFn:(p:any)=>api('/admin/users',{method:'POST',body:JSON.stringify(p)}),onSuccess:()=>{qc.invalidateQueries({queryKey:['admin-users']});toast.success('Usuario creado');setF(blank)},onError:(e:any)=>toast.error(e.message)});const update=useMutation({mutationFn:({id,payload}:any)=>api('/admin/users/'+id,{method:'PATCH',body:JSON.stringify(payload)}),onSuccess:()=>{qc.invalidateQueries({queryKey:['admin-users']});toast.success('Usuario actualizado')}});return <div><Toolbar title="Usuarios" subtitle="Crea clientes o administradores, bloquea cuentas y gestiona roles." search={q} setSearch={setQ}><Field label="Rol"><AdminSelect className="min-w-[170px]" value={role} onChange={setRole} options={[{value:"",label:"Todos"},{value:"CUSTOMER",label:"Clientes"},{value:"ADMIN",label:"Administradores"}]}/></Field><Field label="Estado"><AdminSelect className="min-w-[170px]" value={blocked} onChange={setBlocked} options={[{value:'',label:'Todos'},{value:'false',label:'Activos'},{value:'true',label:'Bloqueados'}]}/></Field></Toolbar><Panel title="Crear usuario"><div className="grid gap-4 md:grid-cols-5"><Field label="Nombre"><input className="input-dark" value={f.name} onChange={e=>setF({...f,name:e.target.value})}/></Field><Field label="Correo"><input className="input-dark" value={f.email} onChange={e=>setF({...f,email:e.target.value})}/></Field><Field label="Contraseña"><input className="input-dark" type={show?'text':'password'} value={f.password} onChange={e=>setF({...f,password:e.target.value})}/></Field><Field label="Rol"><AdminSelect value={f.role} onChange={value=>setF({...f,role:value})} options={[{value:'CUSTOMER',label:'Cliente'},{value:'ADMIN',label:'Administrador'}]}/></Field><button className="btn-ember justify-center self-end" onClick={()=>create.mutate(f)}>Crear usuario</button></div><button className="mt-3 text-sm text-white/45" onClick={()=>setShow(!show)}>{show?'Ocultar contraseña':'Ver contraseña'}</button></Panel><Panel title="Usuarios registrados">{data.map((u:any)=><div key={u.id} className="mb-3 grid gap-3 rounded-2xl bg-black/30 p-4 xl:grid-cols-[1fr_auto_auto_auto]"><div><b>{u.name}</b><p className="text-sm text-white/45">{u.email} · {u._count?.orders||0} pedidos · {u.blocked?'bloqueado':'activo'}</p>{u.lockedUntil&&<p className="text-xs text-orange-200">Bloqueo temporal hasta {new Date(u.lockedUntil).toLocaleString('es-DO')}</p>}</div><AdminSelect value={u.role} onChange={value=>update.mutate({id:u.id,payload:{role:value}})} options={[{value:'CUSTOMER',label:'Cliente'},{value:'ADMIN',label:'Administrador'}]}/><button className="btn-ghost" onClick={()=>update.mutate({id:u.id,payload:{blocked:!u.blocked,blockedReason:u.blocked?null:'Tu cuenta ha sido bloqueada. Contacta soporte.'}})}>{u.blocked?'Desbloquear':'Bloquear'}</button><button className="btn-ghost" onClick={()=>update.mutate({id:u.id,payload:{failedLoginAttempts:0,lockedUntil:null}})}>Limpiar intentos</button></div>)}{!data.length&&<Empty text="No hay usuarios todavía."/>}</Panel></div>}
 function FinanceTab(){const qc=useQueryClient();const {data}=useQuery({queryKey:['admin-dashboard'],queryFn:()=>api<any>('/admin/dashboard')});const {data:products=[]}=useQuery({queryKey:['admin-products-finance'],queryFn:()=>api<any[]>('/admin/products')});const [edit,setEdit]=useState<any|null>(null);const rows=products.map((p:any)=>{const profit=Number(p.price||0)-Number(p.cost||0);const margin=p.price?Math.round((profit/Number(p.price))*100):0;return{...p,profit,margin}});const save=useMutation({mutationFn:(p:any)=>api('/admin/products/'+p.id,{method:'PATCH',body:JSON.stringify({price:Number(p.price),priceUsd:Number(p.priceUsd),cost:Number(p.cost)})}),onSuccess:()=>{qc.invalidateQueries({queryKey:['admin-products-finance']});qc.invalidateQueries({queryKey:['admin-dashboard']});toast.success('Costos actualizados');setEdit(null)}});return <div className="space-y-6"><div className="grid gap-4 md:grid-cols-3"><Stat title="Ingresos" value={money(data?.finance?.totalRevenue||0)} detail="Total vendido"/><Stat title="Costos" value={money(data?.finance?.totalCost||0)} detail="Costo estimado"/><Stat title="Ganancia" value={money(data?.finance?.totalProfit||0)} detail={`${data?.finance?.margin||0}% margen`}/></div><Panel title="Gráfico circular de margen"><Donut items={[{label:'Ganancia estimada',value:Math.max(data?.finance?.totalProfit||0,0),color:'#22c55e'},{label:'Costos',value:data?.finance?.totalCost||0,color:'#ef4444'}]}/></Panel>{edit&&<Panel title={`Editar costos · ${edit.name}`}><div className="grid gap-4 md:grid-cols-4"><Field label="Precio venta RD$"><input className="input-dark" type="number" value={edit.price} onChange={e=>setEdit({...edit,price:Number(e.target.value)})}/></Field><Field label="Precio venta US$"><input className="input-dark" type="number" value={edit.priceUsd} onChange={e=>setEdit({...edit,priceUsd:Number(e.target.value)})}/></Field><Field label="Costo compra RD$"><input className="input-dark" type="number" value={edit.cost} onChange={e=>setEdit({...edit,cost:Number(e.target.value)})}/></Field><button className="btn-ember justify-center self-end" onClick={()=>save.mutate(edit)}>Guardar</button></div></Panel>}<Panel title="Margen por producto">{rows.map((p:any)=><div key={p.id} className="mb-4 rounded-2xl bg-black/30 p-4"><div className="mb-2 flex flex-wrap justify-between gap-2"><div><b>{p.name}</b><p className="text-sm text-white/45">Costo {money(p.cost)} · Venta RD {money(p.price)} · Venta US {money(p.priceUsd,'US$')}</p></div><div className="text-right"><span className="font-bold text-orange-200">{p.margin}% · {money(p.profit)}</span><button className="ml-3 rounded-full bg-white/10 px-4 py-2 text-sm" onClick={()=>setEdit(p)}>Editar costos</button></div></div></div>)}{!rows.length&&<Empty text="Crea productos para calcular márgenes."/>}</Panel><Panel title="Recomendaciones profesionales">{data?.aiRecommendations?.length?data.aiRecommendations.map((r:string,i:number)=><div key={i} className="mb-3 rounded-2xl bg-white/[.04] p-4 text-sm text-white/70">{r}</div>):<Empty text="Cuando tengas productos, vistas y pedidos aparecerán recomendaciones."/>}</Panel></div>}
-function SettingsTab({data}:any){const qc=useQueryClient();const setS=useMutation({mutationFn:({key,value}:any)=>api('/admin/settings/'+key,{method:'PUT',body:JSON.stringify({value})}),onSuccess:()=>{qc.invalidateQueries({queryKey:['admin-dashboard']});toast.success('Control del sitio actualizado')},onError:(e:any)=>toast.error(e.message)});const mode=data.settings?.storeMode||'SHOP';const toggles=['showModels','showDrops','showNews','showCategories','showFeatured','showFooter'];const labels:any={showModels:'Modelos / Lookbook',showDrops:'Drops',showNews:'Novedades',showCategories:'Categorías',showFeatured:'Productos destacados',showFooter:'Footer'};const modeInfo:any={SHOP:{label:'Tienda',desc:'La tienda pública queda abierta con las secciones que actives.',preview:'Menú + home + catálogo + secciones visibles'},DROP:{label:'Drop',desc:'Por defecto el usuario solo verá el contador del drop. El menú y secciones quedan ocultos automáticamente.',preview:'Pantalla completa de drop + contador'},MAINTENANCE:{label:'Mantenimiento',desc:'El usuario solo verá el aviso de mantenimiento. El admin sigue disponible.',preview:'Pantalla completa de mantenimiento'}};return <div className="space-y-6"><Panel title="Modo del sitio" action={<a href="/" target="_blank" className="btn-ghost inline-flex"><Eye size={16}/> Entrar a tienda</a>}><div className="grid gap-4 md:grid-cols-3">{['SHOP','DROP','MAINTENANCE'].map(m=>{const selected=mode===m;return <button key={m} onClick={()=>setS.mutate({key:'storeMode',value:m})} className={`rounded-3xl border p-5 text-left transition ${selected?'border-orange-400 bg-orange-500 text-black shadow-[0_0_35px_rgba(249,115,22,.22)]':'border-white/10 bg-white/[.035] hover:bg-white/[.06]'}`}><div className="mb-3 flex items-center justify-between gap-3"><b className="text-lg">{modeInfo[m].label}</b>{selected&&<span className="rounded-full bg-black/20 px-3 py-1 text-xs font-bold">Activo</span>}</div><p className="min-h-[44px] text-sm opacity-75">{modeInfo[m].desc}</p><div className="mt-4 overflow-hidden rounded-2xl border border-current/20 bg-black/20 p-3"><div className="grid h-24 place-items-center rounded-xl border border-current/10 bg-black/20 text-center text-xs opacity-80">{modeInfo[m].preview}</div></div></button>})}</div><p className="mt-4 rounded-2xl border border-white/10 bg-black/25 p-4 text-sm text-white/50">Al elegir Drop o Mantenimiento, el sistema oculta automáticamente menú y secciones públicas. Puedes reactivar secciones solo si quieres una excepción.</p></Panel><Panel title="Secciones visibles en tienda"><div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">{toggles.map(k=>{const active=(data.settings?.[k]??'true')==='true';return <button key={k} onClick={()=>setS.mutate({key:k,value:String(!active)})} className={`rounded-3xl border p-5 text-left transition ${active?'border-green-400/40 bg-green-500/10':'border-white/10 bg-white/[.035]'}`}><b>{labels[k]}</b><p className="text-sm text-white/45">{active?'Visible':'Oculto'}</p></button>})}</div></Panel></div>}
+function SettingsTab({data}:any){const qc=useQueryClient();const setS=useMutation({mutationFn:({key,value}:any)=>api('/admin/settings/'+key,{method:'PUT',body:JSON.stringify({value})}),onSuccess:()=>{qc.invalidateQueries({queryKey:['admin-dashboard']});qc.invalidateQueries({queryKey:['site-state']});toast.success('Control del sitio actualizado')},onError:(e:any)=>toast.error(e.message)});const mode=data.settings?.storeMode||'SHOP';const toggles=['showModels','showDrops','showNews','showCategories','showFeatured','showShippingInfo','showFooter'];const labels:any={showModels:'Modelos / Lookbook',showDrops:'Drops',showNews:'Novedades',showCategories:'Categorías',showFeatured:'Productos destacados',showShippingInfo:'Página pública de envíos',showFooter:'Pie de página / footer'};const modeInfo:any={SHOP:{label:'Tienda',desc:'La tienda pública queda abierta con las secciones que actives.',preview:'Menú + home + catálogo + secciones visibles'},DROP:{label:'Drop',desc:'Por defecto el usuario solo verá el contador del drop. El menú y secciones quedan ocultos automáticamente.',preview:'Pantalla completa de drop + contador'},MAINTENANCE:{label:'Mantenimiento',desc:'El usuario solo verá el aviso de mantenimiento. El admin sigue disponible.',preview:'Pantalla completa de mantenimiento'}};return <div className="space-y-6"><Panel title="Modo del sitio" action={<a href="/" target="_blank" className="btn-ghost inline-flex"><Eye size={16}/> Entrar a tienda</a>}><div className="grid gap-4 md:grid-cols-3">{['SHOP','DROP','MAINTENANCE'].map(m=>{const selected=mode===m;return <button key={m} onClick={()=>setS.mutate({key:'storeMode',value:m})} className={`rounded-3xl border p-5 text-left transition ${selected?'border-orange-400 bg-orange-500 text-black shadow-[0_0_35px_rgba(249,115,22,.22)]':'border-white/10 bg-white/[.035] hover:bg-white/[.06]'}`}><div className="mb-3 flex items-center justify-between gap-3"><b className="text-lg">{modeInfo[m].label}</b>{selected&&<span className="rounded-full bg-black/20 px-3 py-1 text-xs font-bold">Activo</span>}</div><p className="min-h-[44px] text-sm opacity-75">{modeInfo[m].desc}</p><div className="mt-4 overflow-hidden rounded-2xl border border-current/20 bg-black/20 p-3"><div className="grid h-24 place-items-center rounded-xl border border-current/10 bg-black/20 text-center text-xs opacity-80">{modeInfo[m].preview}</div></div></button>})}</div><p className="mt-4 rounded-2xl border border-white/10 bg-black/25 p-4 text-sm text-white/50">Al elegir Drop o Mantenimiento, el sistema oculta automáticamente menú y secciones públicas. Puedes reactivar secciones solo si quieres una excepción.</p></Panel><Panel title="Secciones visibles en tienda"><div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">{toggles.map(k=>{const active=(data.settings?.[k]??'true')==='true';return <button key={k} onClick={()=>setS.mutate({key:k,value:String(!active)})} className={`rounded-3xl border p-5 text-left transition ${active?'border-green-400/40 bg-green-500/10':'border-white/10 bg-white/[.035]'}`}><b>{labels[k]}</b><p className="text-sm text-white/45">{active?'Visible':'Oculto'}</p></button>})}</div></Panel></div>}
 function SupportTab(){const qc=useQueryClient();const [q,setQ]=useState('');const [status,setStatus]=useState('');const [reply,setReply]=useState<Record<string,string>>({});const {data=[]}=useQuery({queryKey:['admin-tickets',q,status],queryFn:()=>api<any[]>(`/admin/tickets?q=${encodeURIComponent(q)}&status=${encodeURIComponent(status)}`)});const update=useMutation({mutationFn:({id,payload}:any)=>api('/admin/tickets/'+id,{method:'PATCH',body:JSON.stringify(payload)}),onSuccess:()=>{qc.invalidateQueries({queryKey:['admin-tickets']});toast.success('Ticket actualizado')}});const send=useMutation({mutationFn:({id,body}:any)=>api('/admin/tickets/'+id+'/messages',{method:'POST',body:JSON.stringify({body,status:'ANSWERED'})}),onSuccess:()=>{qc.invalidateQueries({queryKey:['admin-tickets']});setReply({});toast.success('Respuesta enviada')}});return <div><Toolbar title="Ayuda y tickets" subtitle="Responde solicitudes de clientes según el permiso del rol." search={q} setSearch={setQ}><Field label="Estado"><AdminSelect className="min-w-[210px]" value={status} onChange={setStatus} options={[{value:"",label:"Todos"},...["OPEN","WAITING_CUSTOMER","ANSWERED","CLOSED"].map(s=>({value:s,label:s}))]}/></Field></Toolbar><div className="space-y-4">{data.map((t:any)=><div key={t.id} className="rounded-3xl border border-white/10 bg-white/[.035] p-5"><div className="flex flex-wrap justify-between gap-4"><div><b>{t.subject}</b><p className="text-sm text-white/45">{t.user?.name} · {t.user?.email} · {t.category} · contacto {t.preferredContact}</p><p className="text-xs text-white/35">{t.contactPhone||t.user?.phone||''} {t.contactWhatsapp||t.user?.whatsapp||''}</p></div><AdminSelect className="max-w-[220px]" value={t.status} onChange={value=>update.mutate({id:t.id,payload:{status:value}})} options={["OPEN","WAITING_CUSTOMER","ANSWERED","CLOSED"].map(s=>({value:s,label:s}))}/></div><div className="mt-4 space-y-2">{t.messages?.map((m:any)=><div key={m.id} className={`rounded-2xl px-4 py-3 text-sm ${m.fromStaff?'bg-orange-500/10 text-orange-50':'bg-black/30 text-white/65'}`}><p>{m.body}</p><span className="text-xs text-white/35">{m.author?.name||'Cliente'} · {new Date(m.createdAt).toLocaleString('es-DO')}</span></div>)}</div><div className="mt-4 flex gap-2"><input className="input-dark" value={reply[t.id]||''} onChange={e=>setReply({...reply,[t.id]:e.target.value})} placeholder="Responder al cliente"/><button className="btn-ember" onClick={()=>send.mutate({id:t.id,body:reply[t.id]||''})}>Responder</button></div></div>)}{!data.length&&<Empty text="No hay tickets con esos filtros."/>}</div></div>}
 function RolesTab(){const qc=useQueryClient();const {data:permissions=[]}=useQuery({queryKey:['admin-permissions'],queryFn:()=>api<any[]>('/admin/permissions')});const {data:roles=[]}=useQuery({queryKey:['admin-roles'],queryFn:()=>api<any[]>('/admin/roles')});const blank={id:'',name:'',slug:'',description:'',active:true,permissions:[] as string[]};const [f,setF]=useState<any>(blank);const save=useMutation({mutationFn:(p:any)=>api(p.id?`/admin/roles/${p.id}`:'/admin/roles',{method:p.id?'PATCH':'POST',body:JSON.stringify({...p,id:undefined})}),onSuccess:()=>{qc.invalidateQueries({queryKey:['admin-roles']});toast.success('Rol guardado');setF(blank)},onError:(e:any)=>toast.error(e.message)});const del=useMutation({mutationFn:(id:string)=>api('/admin/roles/'+id,{method:'DELETE'}),onSuccess:()=>{qc.invalidateQueries({queryKey:['admin-roles']});toast.success('Rol eliminado')},onError:(e:any)=>toast.error(e.message)});const toggle=(key:string)=>setF((prev:any)=>({...prev,permissions:prev.permissions.includes(key)?prev.permissions.filter((p:string)=>p!==key):[...prev.permissions,key]}));return <div className="space-y-6"><Panel title={f.id?'Editar rol':'Crear rol'}><div className="grid gap-4 md:grid-cols-3"><Field label="Nombre del rol"><input className="input-dark" value={f.name} onChange={e=>setF({...f,name:e.target.value,slug:f.slug||slugify(e.target.value).toUpperCase().replace(/-/g,'_')})}/></Field><Field label="Identificador"><input className="input-dark" value={f.slug} onChange={e=>setF({...f,slug:e.target.value.toUpperCase().replace(/[^A-Z0-9_]+/g,'_')})}/></Field><Field label="Estado"><AdminSelect value={String(f.active)} onChange={value=>setF({...f,active:value==="true"})} options={[{value:"true",label:"Activo"},{value:"false",label:"Inactivo"}]}/></Field><div className="md:col-span-3"><Field label="Descripción"><input className="input-dark" value={f.description||''} onChange={e=>setF({...f,description:e.target.value})}/></Field></div></div><div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-3">{permissions.map((p:any)=><label key={p.key} className={`rounded-2xl border p-4 text-sm ${f.permissions.includes(p.key)?'border-orange-400 bg-orange-500/10':'border-white/10 bg-black/20'}`}><input type="checkbox" className="mr-2" checked={f.permissions.includes(p.key)} onChange={()=>toggle(p.key)}/><b>{p.label}</b><p className="mt-1 text-xs text-white/45">{p.description}</p></label>)}</div><div className="mt-5 flex gap-2"><button className="btn-ember" onClick={()=>save.mutate(f)}>Guardar rol</button>{f.id&&<button className="btn-ghost" onClick={()=>setF(blank)}>Cancelar</button>}</div></Panel><Panel title="Roles existentes">{roles.map((r:any)=><div key={r.id} className="mb-3 flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-black/30 p-4"><div><b>{r.name}</b><p className="text-sm text-white/45">{r.slug} · {r.permissions?.length||0} permisos · {r.active?'activo':'inactivo'}</p></div><div className="flex gap-2"><button className="btn-ghost" onClick={()=>setF({id:r.id,name:r.name,slug:r.slug,description:r.description||'',active:r.active,permissions:r.permissions?.map((p:any)=>p.permission)||[]})}>Editar</button><button className="rounded-full bg-red-500/10 px-4 py-2 text-sm text-red-200" onClick={()=>del.mutate(r.id)}>Eliminar</button></div></div>)}</Panel></div>}
 function ReportsTab(){const {data,isLoading}=useQuery({queryKey:['admin-reports'],queryFn:()=>api<any>('/admin/reports')});if(isLoading||!data)return <p className="text-white/45">Cargando reportes...</p>;return <div className="space-y-6"><Toolbar title="Reportes" subtitle="Ventas, pagos, cupones e inventario en una vista operativa."/><div className="grid gap-4 md:grid-cols-4"><Stat title="Ingresos" value={money(data.summary?.revenue||0)} detail="Pedidos no cancelados"/><Stat title="Descuentos" value={money(data.summary?.discount||0)} detail="Cupones aplicados"/><Stat title="Envios" value={money(data.summary?.shipping||0)} detail="Tarifas cobradas"/><Stat title="Stock bajo" value={data.summary?.lowStock||0} detail="Productos por debajo del umbral"/></div><div className="grid gap-6 xl:grid-cols-2"><Panel title="Pedidos por estado">{Object.entries(data.statusCounts||{}).map(([k,v]:any)=><div key={k} className="mb-2 flex justify-between rounded-2xl bg-black/30 px-4 py-3"><span>{statusLabels[k]||k}</span><b>{v}</b></div>)}</Panel><Panel title="Productos mas vendidos">{data.topProducts?.map((p:any)=><div key={p.id} className="mb-2 flex justify-between rounded-2xl bg-black/30 px-4 py-3"><span>{p.name}</span><b>{p.quantity} uds · {money(p.revenue)}</b></div>)}{!data.topProducts?.length&&<Empty text="Aun no hay ventas para ordenar productos."/>}</Panel><Panel title="Stock bajo">{data.lowStock?.map((p:any)=><div key={p.id} className="mb-2 flex justify-between rounded-2xl bg-black/30 px-4 py-3"><span>{p.name}</span><b>{p.stock} disponibles</b></div>)}{!data.lowStock?.length&&<Empty text="No hay productos con stock bajo."/>}</Panel><Panel title="Pagos">{Object.entries(data.paymentCounts||{}).map(([k,v]:any)=><div key={k} className="mb-2 flex justify-between rounded-2xl bg-black/30 px-4 py-3"><span>{k}</span><b>{v}</b></div>)}</Panel></div></div>}
@@ -1282,6 +1382,324 @@ function MarketingPopupsTabV2(){
   return <div className="space-y-6"><Toolbar title="Novedades emergentes" subtitle="Diseña el popup, arrastra textos y botones en la vista previa, y define sus acciones."/><Panel title={f.id?'Editar novedad':'Crear novedad'} action={<span className={`rounded-full px-4 py-2 text-xs font-black uppercase tracking-[.14em] ${f.isActive?'bg-green-500/15 text-green-200':'bg-white/10 text-white/55'}`}>{f.isActive?'Activa':'Borrador'}</span>}><div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(440px,.9fr)]"><div className="space-y-5"><div className="grid gap-4 md:grid-cols-2"><Field label="Nombre interno"><input className="input-dark" value={f.name} onChange={e=>setF({...f,name:e.target.value})}/></Field><Field label="Estado"><AdminSelect value={String(f.isActive)} onChange={value=>setF({...f,isActive:value==='true'})} options={[{value:'false',label:'Borrador / oculto'},{value:'true',label:'Activo en la tienda'}]}/></Field><Field label="Retraso para aparecer"><input type="number" min={0} max={120} className="input-dark" value={f.delaySeconds} onChange={e=>setF({...f,delaySeconds:Number(e.target.value)})}/></Field><Field label="Mostrar"><AdminSelect value={String(f.showOnce)} onChange={value=>setF({...f,showOnce:value==='true'})} options={[{value:'true',label:'Una vez por navegador'},{value:'false',label:'Cada visita'}]}/></Field><Field label="Inicio opcional"><input type="datetime-local" className="input-dark" value={f.startsAt||''} onChange={e=>setF({...f,startsAt:e.target.value})}/></Field><Field label="Fin opcional"><input type="datetime-local" className="input-dark" value={f.endsAt||''} onChange={e=>setF({...f,endsAt:e.target.value})}/></Field></div><div className="grid gap-4 md:grid-cols-3"><Field label="Subir imagen / fondo"><input type="file" accept="image/*" className="input-dark" onChange={e=>uploadImage(e.target.files?.[0])}/></Field><Field label="Dimensiones"><AdminSelect value={f.useImageDimensions?'image':'custom'} onChange={value=>{const useImage=value==='image';setF({...f,useImageDimensions:useImage,...(useImage&&f.imageNaturalWidth&&f.imageNaturalHeight?{width:f.imageNaturalWidth,height:f.imageNaturalHeight}:{})})}} options={[{value:'custom',label:'Personalizadas'},{value:'image',label:'Usar las de la imagen'}]}/></Field><Field label="URL de imagen"><input className="input-dark" value={f.imageUrl||''} onChange={e=>setF({...f,imageUrl:e.target.value})}/></Field><Field label="Ancho px"><input type="number" className="input-dark" value={f.width} onChange={e=>setF({...f,width:Number(e.target.value)})}/></Field><Field label="Alto px"><input type="number" className="input-dark" value={f.height} onChange={e=>setF({...f,height:Number(e.target.value)})}/></Field><Field label="Overlay" hint="Ej: rgba(0,0,0,0.38)"><input className="input-dark" value={f.overlayColor} onChange={e=>setF({...f,overlayColor:e.target.value})}/></Field></div><div className="grid gap-4 md:grid-cols-3"><Field label="Titulo"><input className="input-dark" value={f.title} onChange={e=>setF({...f,title:e.target.value})}/></Field><Field label="Subtitulo"><input className="input-dark" value={f.subtitle||''} onChange={e=>setF({...f,subtitle:e.target.value})}/></Field><Field label="Texto extra"><input className="input-dark" value={f.body||''} onChange={e=>setF({...f,body:e.target.value})}/></Field></div><div className="grid gap-4 md:grid-cols-4"><Field label="Color fondo"><input type="color" className="input-dark h-12 p-1" value={f.backgroundColor} onChange={e=>setF({...f,backgroundColor:e.target.value})}/></Field><Field label="Color titulo"><input type="color" className="input-dark h-12 p-1" value={f.titleColor} onChange={e=>setF({...f,titleColor:e.target.value})}/></Field><Field label="Color subtitulo"><input type="color" className="input-dark h-12 p-1" value={f.subtitleColor} onChange={e=>setF({...f,subtitleColor:e.target.value})}/></Field><Field label="Color texto extra"><input type="color" className="input-dark h-12 p-1" value={f.bodyColor} onChange={e=>setF({...f,bodyColor:e.target.value})}/></Field></div><div className="grid gap-4 md:grid-cols-4"><Field label="Titulo X"><input type="range" min={0} max={100} value={f.titleX} onChange={e=>setF({...f,titleX:Number(e.target.value)})}/></Field><Field label="Titulo Y"><input type="range" min={0} max={100} value={f.titleY} onChange={e=>setF({...f,titleY:Number(e.target.value)})}/></Field><Field label="Subtitulo X"><input type="range" min={0} max={100} value={f.subtitleX} onChange={e=>setF({...f,subtitleX:Number(e.target.value)})}/></Field><Field label="Subtitulo Y"><input type="range" min={0} max={100} value={f.subtitleY} onChange={e=>setF({...f,subtitleY:Number(e.target.value)})}/></Field><Field label="Texto X"><input type="range" min={0} max={100} value={f.bodyX} onChange={e=>setF({...f,bodyX:Number(e.target.value)})}/></Field><Field label="Texto Y"><input type="range" min={0} max={100} value={f.bodyY} onChange={e=>setF({...f,bodyY:Number(e.target.value)})}/></Field><Field label="Botones X"><input type="range" min={0} max={100} value={f.buttonsX} onChange={e=>setF({...f,buttonsX:Number(e.target.value)})}/></Field><Field label="Botones Y"><input type="range" min={0} max={100} value={f.buttonsY} onChange={e=>setF({...f,buttonsY:Number(e.target.value)})}/></Field></div>{selectedPiece&&<AlignButtons piece="buttons"/>}<div className="grid gap-4 md:grid-cols-2"><PopupFold title="Boton principal" open={folds.primary} onToggle={()=>setFolds(v=>({...v,primary:!v.primary}))}><div className="grid gap-4 md:grid-cols-2"><Field label="Texto"><input className="input-dark" value={f.primaryLabel} onChange={e=>setF({...f,primaryLabel:e.target.value})}/></Field><Field label="Accion"><AdminSelect value={f.primaryAction} onChange={value=>setF({...f,primaryAction:value})} options={popupActionOptions}/></Field><Field label="Enlace / WhatsApp"><input className="input-dark" value={f.primaryUrl||''} onChange={e=>setF({...f,primaryUrl:e.target.value})}/></Field><Field label="Color boton"><input type="color" className="input-dark h-12 p-1" value={f.primaryBgColor} onChange={e=>setF({...f,primaryBgColor:e.target.value})}/></Field><Field label="Color texto"><input type="color" className="input-dark h-12 p-1" value={f.primaryTextColor} onChange={e=>setF({...f,primaryTextColor:e.target.value})}/></Field></div></PopupFold><PopupFold title="Boton secundario" open={folds.secondary} onToggle={()=>setFolds(v=>({...v,secondary:!v.secondary}))}><div className="grid gap-4 md:grid-cols-2"><Field label="Texto"><input className="input-dark" value={f.secondaryLabel||''} onChange={e=>setF({...f,secondaryLabel:e.target.value})}/></Field><Field label="Accion"><AdminSelect value={f.secondaryAction} onChange={value=>setF({...f,secondaryAction:value})} options={popupActionOptions}/></Field><Field label="Enlace opcional"><input className="input-dark" value={f.secondaryUrl||''} onChange={e=>setF({...f,secondaryUrl:e.target.value})}/></Field><Field label="Fondo boton"><input className="input-dark" value={f.secondaryBgColor} onChange={e=>setF({...f,secondaryBgColor:e.target.value})}/></Field><Field label="Color texto"><input type="color" className="input-dark h-12 p-1" value={f.secondaryTextColor} onChange={e=>setF({...f,secondaryTextColor:e.target.value})}/></Field></div></PopupFold></div><div className="flex flex-wrap gap-3"><button className="btn-ember justify-center" onClick={()=>save.mutate(f)}>{f.id?'Guardar cambios':'Crear novedad'}</button>{f.id&&<button className="btn-ghost justify-center" onClick={()=>setF(popupBlankV2)}>Cancelar edicion</button>}</div></div><div className="rounded-[1.6rem] border border-white/10 bg-black/30 p-4"><div className="mb-3 flex items-center justify-between gap-3"><b>Vista previa arrastrable</b><span className="admin-muted text-xs">{f.width} x {f.height}px</span></div><div ref={previewRef} onPointerMove={e=>dragging&&movePiece(dragging,e)} onPointerUp={()=>setDragging(null)} onPointerCancel={()=>setDragging(null)} className="relative mx-auto w-full touch-none overflow-hidden rounded-[1.35rem] border border-orange-200/20 shadow-2xl" style={previewStyle}>{f.imageUrl&&<img src={f.imageUrl} className="absolute inset-0 h-full w-full object-cover" alt="Preview popup"/>}<div className="absolute inset-0" style={{background:f.overlayColor}}/><Draggable piece="title" className="max-w-[86%]" style={{...popupPercent(f.titleX,f.titleY),...popupAlignCss(f.titleAlign),color:f.titleColor}}><h3 className="text-[clamp(1.8rem,5vw,3.6rem)] font-black uppercase leading-[.95]">{f.title}</h3></Draggable>{f.subtitle&&<Draggable piece="subtitle" className="max-w-[80%]" style={{...popupPercent(f.subtitleX,f.subtitleY),...popupAlignCss(f.subtitleAlign),color:f.subtitleColor}}><p className="text-xl font-extrabold">{f.subtitle}</p></Draggable>}{f.body&&<Draggable piece="body" className="max-w-[78%]" style={{...popupPercent(f.bodyX,f.bodyY),...popupAlignCss(f.bodyAlign),color:f.bodyColor}}><p className="whitespace-pre-line text-base font-bold">{f.body}</p></Draggable>}<Draggable piece="buttons" className="flex max-w-[86%] flex-wrap gap-3" style={{...popupPercent(f.buttonsX,f.buttonsY),...popupAlignCss(f.buttonsAlign)}}><span className="rounded-xl px-5 py-3 text-xs font-black uppercase tracking-[.16em]" style={{background:f.primaryBgColor,color:f.primaryTextColor}}>{f.primaryLabel}</span>{f.secondaryLabel&&<span className="rounded-xl border border-white/20 px-4 py-2 text-xs font-bold" style={{background:f.secondaryBgColor,color:f.secondaryTextColor}}>{f.secondaryLabel}</span>}</Draggable></div><p className="admin-muted mt-4 text-sm">Tip: arrastra titulo, subtitulo, texto o botones directamente sobre la imagen. Los botones de alineacion ajustan izquierda, centro y derecha rapido.</p></div></div></Panel><Panel title="Novedades guardadas">{data.map((popup:any)=><div key={popup.id} className="mb-3 grid gap-3 rounded-2xl bg-black/30 p-4 lg:grid-cols-[90px_1fr_auto]"><div className="h-20 overflow-hidden rounded-2xl bg-white/5">{popup.imageUrl?<img src={popup.imageUrl} className="h-full w-full object-cover"/>:<div className="grid h-full place-items-center text-xs text-white/35">Sin imagen</div>}</div><div><b>{popup.name}</b><p className="text-sm text-white/45">{popup.title} · aparece en {popup.delaySeconds}s · {popup.showOnce?'una vez por navegador':'cada visita'}</p><p className={popup.isActive?'text-sm text-green-200':'text-sm text-white/35'}>{popup.isActive?'Activo en tienda':'Oculto'}</p></div><div className="flex flex-wrap items-center gap-2"><button className="btn-ghost" onClick={()=>edit(popup)}>Editar</button><button className="btn-ghost" onClick={()=>toggleActive.mutate({id:popup.id,isActive:!popup.isActive})}>{popup.isActive?'Desactivar':'Activar'}</button><button className="btn-ghost" onClick={()=>testPopup(popup)}>Probar en tienda</button><button className="rounded-full bg-red-500/10 px-4 py-2 text-sm text-red-200" onClick={()=>{if(confirm('Eliminar esta novedad emergente?'))del.mutate(popup.id)}}>Eliminar</button></div></div>)}{!data.length&&<Empty text="Todavia no has creado novedades emergentes."/>}</Panel></div>;
 }
 
+function DropsTabV2(){
+  const qc=useQueryClient();
+  const formRef=useRef<HTMLDivElement|null>(null);
+  const {data=[]}=useQuery({queryKey:['admin-drops'],queryFn:()=>api<any[]>('/admin/drops')});
+  const blank={id:'',title:'',description:'',startsAt:'',endsAt:'',isActive:false,lockedMode:false};
+  const [f,setF]=useState<any>(blank);
+  const reset=()=>setF(blank);
+  const validate=()=>{
+    const title=String(f.title||'').trim();
+    const description=String(f.description||'').trim();
+    if(title.length<2)return 'Escribe un titulo para el drop.';
+    if(description.length<5)return 'Agrega una descripcion un poquito mas clara.';
+    if(!f.startsAt)return 'Selecciona la fecha y hora de inicio.';
+    if(!f.endsAt)return 'Selecciona la fecha y hora de cierre.';
+    if(Number.isNaN(Date.parse(f.startsAt))||Number.isNaN(Date.parse(f.endsAt)))return 'Las fechas del drop no son validas.';
+    if(new Date(f.endsAt)<=new Date(f.startsAt))return 'El cierre del drop debe ser despues del inicio.';
+    return '';
+  };
+  const payload=()=>({...f,id:undefined,title:String(f.title||'').trim(),description:String(f.description||'').trim(),startsAt:f.startsAt,endsAt:f.endsAt,isActive:Boolean(f.isActive),lockedMode:Boolean(f.lockedMode)});
+  const save=useMutation({
+    mutationFn:(p:any)=>api(p.id?`/admin/drops/${p.id}`:'/admin/drops',{method:p.id?'PATCH':'POST',body:JSON.stringify(payload())}),
+    onSuccess:()=>{
+      qc.invalidateQueries({queryKey:['admin-drops']});
+      qc.invalidateQueries({queryKey:['admin-dashboard']});
+      qc.invalidateQueries({queryKey:['active-drop']});
+      toast.success(f.id?'Drop actualizado':'Drop creado');
+      reset();
+    },
+    onError:(e:any)=>toast.error(e.message||'No se pudo guardar el drop'),
+  });
+  const del=useMutation({
+    mutationFn:(id:string)=>api('/admin/drops/'+id,{method:'DELETE'}),
+    onSuccess:()=>{
+      qc.invalidateQueries({queryKey:['admin-drops']});
+      qc.invalidateQueries({queryKey:['admin-models']});
+      qc.invalidateQueries({queryKey:['admin-dashboard']});
+      toast.success('Drop eliminado');
+      reset();
+    },
+    onError:(e:any)=>toast.error(e.message||'No se pudo eliminar el drop'),
+  });
+  const submit=()=>{
+    const error=validate();
+    if(error){toast.error(error);return;}
+    save.mutate(f);
+  };
+  const edit=(drop:any)=>{
+    setF({...drop,startsAt:dateInputValue(drop.startsAt),endsAt:dateInputValue(drop.endsAt)});
+    requestAnimationFrame(()=>formRef.current?.scrollIntoView({behavior:'smooth',block:'start'}));
+  };
+  return <div className="space-y-6">
+    <Toolbar title="Drops" subtitle="Crea lanzamientos, prepara colecciones y decide si un drop toma control de la tienda."/>
+    <Panel title="Como funciona" action={<span className="rounded-full bg-orange-500/10 px-4 py-2 text-xs font-black uppercase tracking-[.14em] text-orange-100">Modelos pueden usar drops guardados</span>}>
+      <div className="grid gap-3 md:grid-cols-3">
+        <div className="rounded-2xl border border-white/10 bg-black/25 p-4"><b>Drop inactivo</b><p className="mt-1 text-sm text-white/50">Sirve para organizar fotos de modelos sin cambiar la tienda publica.</p></div>
+        <div className="rounded-2xl border border-orange-300/20 bg-orange-500/10 p-4"><b>Drop activo</b><p className="mt-1 text-sm text-orange-50/70">Se usa para contador y experiencia de lanzamiento.</p></div>
+        <div className="rounded-2xl border border-white/10 bg-black/25 p-4"><b>Bloquear tienda</b><p className="mt-1 text-sm text-white/50">Solo usalo cuando quieres que el publico vea exclusivamente el drop.</p></div>
+      </div>
+    </Panel>
+    <div ref={formRef}>
+      <Panel title={f.id?'Editar drop':'Crear drop'} action={f.id?<button className="btn-ghost" onClick={reset}>Cancelar edicion</button>:null}>
+        <div className="grid gap-4 md:grid-cols-2">
+          <Field label="Titulo del drop"><input className="input-dark" value={f.title} onChange={e=>setF({...f,title:e.target.value})} placeholder="Drop de verano, nuevas llegadas..."/></Field>
+          <Field label="Descripcion corta"><input className="input-dark" value={f.description} onChange={e=>setF({...f,description:e.target.value})} placeholder="Texto interno para identificar la coleccion"/></Field>
+          <Field label="Inicio"><input className="input-dark" type="datetime-local" value={f.startsAt||''} onChange={e=>setF({...f,startsAt:e.target.value})}/></Field>
+          <Field label="Fin"><input className="input-dark" type="datetime-local" value={f.endsAt||''} onChange={e=>setF({...f,endsAt:e.target.value})}/></Field>
+          <label className={`rounded-2xl border p-4 text-sm transition ${f.isActive?'border-orange-400 bg-orange-500/10 text-orange-50':'border-white/10 bg-black/20 text-white/65'}`}><input type="checkbox" className="mr-2" checked={f.isActive} onChange={e=>setF({...f,isActive:e.target.checked})}/> Activar drop</label>
+          <label className={`rounded-2xl border p-4 text-sm transition ${f.lockedMode?'border-red-300 bg-red-500/10 text-red-50':'border-white/10 bg-black/20 text-white/65'}`}><input type="checkbox" className="mr-2" checked={f.lockedMode} onChange={e=>setF({...f,lockedMode:e.target.checked})}/> Bloquear tienda publica durante el drop</label>
+          <button disabled={save.isPending} className="btn-ember justify-center disabled:opacity-50 md:col-span-2" onClick={submit}>{save.isPending?'Guardando...':f.id?'Guardar cambios':'Crear drop'}</button>
+        </div>
+      </Panel>
+    </div>
+    <Panel title="Drops guardados">
+      <div className="grid gap-3">
+        {data.map((d:any)=><div key={d.id} className="grid gap-3 rounded-2xl border border-white/10 bg-black/30 p-4 md:grid-cols-[1fr_auto]">
+          <div><div className="flex flex-wrap items-center gap-2"><b>{d.title}</b><span className={`rounded-full px-3 py-1 text-xs font-bold ${d.isActive?'bg-green-500/15 text-green-200':'bg-white/10 text-white/50'}`}>{d.isActive?'Activo':'Inactivo'}</span>{d.lockedMode&&<span className="rounded-full bg-red-500/15 px-3 py-1 text-xs font-bold text-red-100">Bloquea tienda</span>}</div><p className="mt-1 text-sm text-white/45">{d.description}</p><p className="mt-1 text-xs text-white/35">{new Date(d.startsAt).toLocaleString('es-DO')} - {new Date(d.endsAt).toLocaleString('es-DO')} · modelos {d._count?.modelPhotos||0}</p></div>
+          <div className="flex flex-wrap items-center gap-2"><button className="btn-ghost" onClick={()=>edit(d)}>Editar</button><button className="rounded-full bg-red-500/10 px-4 py-2 text-sm font-bold text-red-100" onClick={()=>{if(confirm('Eliminar este drop? Sus fotos de modelos se conservaran como independientes.'))del.mutate(d.id)}}><Trash2 size={14} className="mr-2 inline"/>Eliminar</button></div>
+        </div>)}
+        {!data.length&&<Empty text="No hay drops creados. Crea uno para organizar fotos de modelos o preparar un lanzamiento."/>}
+      </div>
+    </Panel>
+  </div>;
+}
+
+function ModelsTabV2(){
+  const qc=useQueryClient();
+  const formRef=useRef<HTMLDivElement|null>(null);
+  const previewCanvasRef=useRef<HTMLCanvasElement|null>(null);
+  const {data:drops=[]}=useQuery({queryKey:['admin-drops'],queryFn:()=>api<any[]>('/admin/drops')});
+  const {data:products=[]}=useQuery({queryKey:['admin-products'],queryFn:()=>api<any[]>('/admin/products')});
+  const {data:models=[]}=useQuery({queryKey:['admin-models'],queryFn:()=>api<any[]>('/admin/models')});
+  const blank={id:'',dropId:'',productId:'',imageUrl:'',caption:'',tagX:50,tagY:45,tagDotSize:24,tagLabelSize:12,tagLabelOffsetX:0,tagLabelOffsetY:8,sortOrder:1,isActive:true};
+  const [f,setF]=useState<any>(blank);
+  const [cropSource,setCropSource]=useState('');
+  const [cropZoom,setCropZoom]=useState(1);
+  const [cropX,setCropX]=useState(50);
+  const [cropY,setCropY]=useState(50);
+  const [cropWidth,setCropWidth]=useState(1000);
+  const [cropHeight,setCropHeight]=useState(1250);
+  const [cropBusy,setCropBusy]=useState(false);
+  const [cropError,setCropError]=useState('');
+  const selectedProduct=products.find((p:any)=>p.id===(f.productId||products[0]?.id));
+  const cropSettings={zoom:cropZoom,positionX:cropX,positionY:cropY,width:cropWidth,height:cropHeight};
+  const resetCrop=(source='')=>{
+    setCropSource(source);
+    setCropZoom(1);
+    setCropX(50);
+    setCropY(50);
+    setCropWidth(1000);
+    setCropHeight(1250);
+    setCropError('');
+  };
+  const reset=()=>{
+    setF(blank);
+    resetCrop();
+  };
+  const openCropEditor=(source:string)=>{
+    const value=String(source||'').trim();
+    if(!value){toast.error('Sube una foto o pega una URL valida.');return;}
+    resetCrop(value);
+  };
+  useEffect(()=>{
+    const canvas=previewCanvasRef.current;
+    if(!canvas||!cropSource)return;
+    let cancelled=false;
+    setCropError('');
+    loadCropImage(cropSource).then(img=>{
+      if(cancelled)return;
+      drawModelCrop(canvas,img,{...cropSettings,width:800,height:1000});
+    }).catch((error:Error)=>{
+      if(cancelled)return;
+      setCropError(error.message||'No se pudo mostrar la imagen.');
+    });
+    return()=>{cancelled=true;};
+  },[cropSource,cropZoom,cropX,cropY]);
+  const setOutputWidth=(value:number)=>{
+    const width=Math.max(320,Math.min(1600,Math.round(value||1000)));
+    setCropWidth(width);
+    setCropHeight(Math.round(width*1.25));
+  };
+  const setOutputHeight=(value:number)=>{
+    const height=Math.max(400,Math.min(2000,Math.round(value||1250)));
+    setCropHeight(height);
+    setCropWidth(Math.round(height*0.8));
+  };
+  const validate=()=>{
+    if(!products.length)return 'Primero crea un producto para etiquetarlo en la foto.';
+    if(!(f.productId||products[0]?.id))return 'Selecciona la gafa que aparece en la foto.';
+    if(!String(f.imageUrl||'').trim())return 'Sube una foto o pega una URL de imagen.';
+    return '';
+  };
+  const buildPayload=(p:any)=>({
+    ...p,
+    id:undefined,
+    dropId:p.dropId||null,
+    productId:p.productId||products[0]?.id,
+    imageUrl:String(p.imageUrl||'').trim(),
+    caption:String(p.caption||'').trim()||null,
+    tagX:Math.max(0,Math.min(100,Math.round(Number(p.tagX??50)))),
+    tagY:Math.max(0,Math.min(100,Math.round(Number(p.tagY??45)))),
+    tagDotSize:Math.max(12,Math.min(72,Math.round(Number(p.tagDotSize??24)))),
+    tagLabelSize:Math.max(9,Math.min(28,Math.round(Number(p.tagLabelSize??12)))),
+    tagLabelOffsetX:Math.max(-240,Math.min(240,Math.round(Number(p.tagLabelOffsetX??0)))),
+    tagLabelOffsetY:Math.max(-180,Math.min(180,Math.round(Number(p.tagLabelOffsetY??8)))),
+    sortOrder:Math.round(Number(p.sortOrder||0)),
+    isActive:Boolean(p.isActive),
+  });
+  const save=useMutation({
+    mutationFn:(p:any)=>api(p.id?`/admin/models/${p.id}`:'/admin/models',{method:p.id?'PATCH':'POST',body:JSON.stringify(buildPayload(p))}),
+    onSuccess:()=>{
+      qc.invalidateQueries({queryKey:['admin-models']});
+      qc.invalidateQueries({queryKey:['public-model-photos']});
+      toast.success(f.id?'Foto de modelo actualizada':'Foto de modelo guardada');
+      reset();
+    },
+    onError:(e:any)=>toast.error(e.message||'No se pudo guardar la foto de modelo'),
+  });
+  const del=useMutation({
+    mutationFn:(id:string)=>api('/admin/models/'+id,{method:'DELETE'}),
+    onSuccess:()=>{
+      qc.invalidateQueries({queryKey:['admin-models']});
+      qc.invalidateQueries({queryKey:['public-model-photos']});
+      toast.success('Foto de modelo eliminada');
+      reset();
+    },
+    onError:(e:any)=>toast.error(e.message||'No se pudo eliminar la foto de modelo'),
+  });
+  const cropCurrentImage=async()=>{
+    const source=cropSource||String(f.imageUrl||'').trim();
+    if(!source)throw new Error('Sube una foto antes de recortarla.');
+    return exportModelCrop(source,cropSettings);
+  };
+  const applyCrop=async()=>{
+    setCropBusy(true);
+    try{
+      const cropped=await cropCurrentImage();
+      setF((prev:any)=>({...prev,imageUrl:cropped}));
+      setCropSource(cropped);
+      setCropZoom(1);
+      setCropX(50);
+      setCropY(50);
+      setCropError('');
+      toast.success('Recorte aplicado. Esta sera la imagen visible en la tienda.');
+    }catch(error:any){
+      toast.error(error.message||'No se pudo aplicar el recorte.');
+    }finally{
+      setCropBusy(false);
+    }
+  };
+  const submit=async()=>{
+    const error=validate();
+    if(error){toast.error(error);return;}
+    setCropBusy(true);
+    try{
+      const imageUrl=await cropCurrentImage();
+      save.mutate({...f,imageUrl});
+    }catch(cropFailure:any){
+      toast.error(cropFailure.message||'No se pudo preparar la imagen.');
+    }finally{
+      setCropBusy(false);
+    }
+  };
+  const place=(e:any)=>{
+    const rect=e.currentTarget.getBoundingClientRect();
+    setF((prev:any)=>({...prev,tagX:Math.round(((e.clientX-rect.left)/rect.width)*100),tagY:Math.round(((e.clientY-rect.top)/rect.height)*100)}));
+  };
+  const edit=(model:any)=>{
+    setF({...model,dropId:model.dropId||model.drop?.id||'',productId:model.productId||model.product?.id||''});
+    resetCrop(model.imageUrl||'');
+    requestAnimationFrame(()=>formRef.current?.scrollIntoView({behavior:'smooth',block:'start'}));
+  };
+  return <div className="space-y-6">
+    <Toolbar title="Modelos / Lookbook" subtitle="Recorta la foto en el formato exacto de la tienda, coloca la etiqueta y ordena como se muestra en la pagina Modelos."/>
+    {!products.length&&<div className="rounded-2xl border border-yellow-400/20 bg-yellow-500/10 p-4 text-sm text-yellow-50">Crea al menos un producto para poder etiquetar la foto.</div>}
+    <div ref={formRef}>
+      <Panel title={f.id?'Editar foto de modelo':'Crear foto de modelo'} action={f.id?<button className="btn-ghost" onClick={reset}>Cancelar edicion</button>:null}>
+        <div className="grid gap-4 md:grid-cols-2">
+          <Field label="Coleccion / drop opcional" hint="Puedes dejar la foto independiente."><AdminSelect value={f.dropId||''} onChange={value=>setF({...f,dropId:value})} options={[{value:'',label:'Sin coleccion / independiente'},...drops.map((d:any)=>({value:d.id,label:<>{d.title} {d.isActive?'· activo':'· guardado'}</>}))]}/></Field>
+          <Field label="Gafa etiquetada"><AdminSelect value={f.productId||products[0]?.id||''} onChange={value=>setF({...f,productId:value})} options={products.map((p:any)=>({value:p.id,label:p.name}))}/></Field>
+          <Field label="Subir foto" hint="Al elegirla se abre debajo el editor de recorte."><input className="input-dark" type="file" accept="image/*" onChange={async e=>{const file=e.target.files?.[0];if(!file)return;const imageUrl=await readFile(file);setF((prev:any)=>({...prev,imageUrl}));resetCrop(imageUrl);}}/></Field>
+          <Field label="URL de imagen" hint="Si usas una URL, presiona Abrir en editor antes de guardar."><div className="flex gap-2"><input className="input-dark min-w-0 flex-1" value={f.imageUrl||''} onChange={e=>setF({...f,imageUrl:e.target.value})} placeholder="Tambien puedes pegar una URL"/><button type="button" className="btn-ghost shrink-0" onClick={()=>openCropEditor(f.imageUrl)}>Abrir</button></div></Field>
+          <Field label="Texto/caption"><input className="input-dark" value={f.caption||''} onChange={e=>setF({...f,caption:e.target.value})} placeholder="Ej: lentes usados por modelo"/></Field>
+          <Field label="Orden"><input type="number" className="input-dark" value={f.sortOrder} onChange={e=>setF({...f,sortOrder:Number(e.target.value)})}/></Field>
+          <Field label="Posicion X (%)"><input type="number" min={0} max={100} className="input-dark" value={f.tagX} onChange={e=>setF({...f,tagX:Number(e.target.value)})}/></Field>
+          <Field label="Posicion Y (%)"><input type="number" min={0} max={100} className="input-dark" value={f.tagY} onChange={e=>setF({...f,tagY:Number(e.target.value)})}/></Field>
+          <Field label={`Tamano del punto ${f.tagDotSize||24}px`}><input className="w-full accent-orange-500" type="range" min={12} max={72} step={1} value={f.tagDotSize||24} onChange={e=>setF({...f,tagDotSize:Number(e.target.value)})}/></Field>
+          <Field label={`Tamano del nombre ${f.tagLabelSize||12}px`}><input className="w-full accent-orange-500" type="range" min={9} max={28} step={1} value={f.tagLabelSize||12} onChange={e=>setF({...f,tagLabelSize:Number(e.target.value)})}/></Field>
+          <Field label={`Nombre izquierda/derecha ${f.tagLabelOffsetX||0}px`}><input className="w-full accent-orange-500" type="range" min={-240} max={240} step={1} value={f.tagLabelOffsetX||0} onChange={e=>setF({...f,tagLabelOffsetX:Number(e.target.value)})}/></Field>
+          <Field label={`Nombre arriba/abajo ${f.tagLabelOffsetY??8}px`}><input className="w-full accent-orange-500" type="range" min={-180} max={180} step={1} value={f.tagLabelOffsetY??8} onChange={e=>setF({...f,tagLabelOffsetY:Number(e.target.value)})}/></Field>
+          <label className={`rounded-2xl border p-4 text-sm transition ${f.isActive?'border-green-400/30 bg-green-500/10 text-green-50':'border-white/10 bg-black/20 text-white/60'}`}><input type="checkbox" className="mr-2" checked={Boolean(f.isActive)} onChange={e=>setF({...f,isActive:e.target.checked})}/> Visible en la pagina Modelos</label>
+          <button disabled={save.isPending||cropBusy||!products.length} className="btn-ember justify-center disabled:opacity-50" onClick={submit}>{save.isPending||cropBusy?'Preparando imagen...':f.id?'Guardar cambios':'Guardar foto'}</button>
+        </div>
+        {cropSource&&<div className="mt-5">
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+            <div><b>Vista exacta en la tienda</b><p className="admin-muted text-sm">El recorte y la posicion coinciden con la tarjeta publica.</p></div>
+            <span className="rounded-full border border-white/10 bg-black/25 px-3 py-1 text-xs text-white/55">X {f.tagX}% · Y {f.tagY}%</span>
+          </div>
+          <div onClick={place} className="relative aspect-[4/5] w-full max-w-[400px] cursor-crosshair overflow-hidden rounded-[2.2rem] border border-white/10 bg-black">
+            <canvas ref={previewCanvasRef} width={800} height={1000} className="block h-full w-full"/>
+            <ModelProductTag
+              x={f.tagX}
+              y={f.tagY}
+              dotSize={f.tagDotSize}
+              labelSize={f.tagLabelSize}
+              labelOffsetX={f.tagLabelOffsetX}
+              labelOffsetY={f.tagLabelOffsetY}
+              label={selectedProduct?.name||'Etiqueta'}
+            />
+          </div>
+          {cropError&&<p className="mt-3 rounded-xl border border-red-400/20 bg-red-500/10 p-3 text-sm text-red-100">{cropError}</p>}
+          <div className="mt-5 rounded-[1.6rem] border border-white/10 bg-black/25 p-5">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div><p className="text-xs font-black uppercase tracking-[.16em] text-orange-300">Editor de encuadre</p><h3 className="mt-1 text-xl font-black">Recorta antes de publicar</h3></div>
+              <button type="button" className="btn-ghost" onClick={()=>{setCropZoom(1);setCropX(50);setCropY(50)}}><RotateCcw size={15}/> Centrar</button>
+            </div>
+            <div className="mt-5 grid gap-5 lg:grid-cols-3">
+              <Field label={`Acercamiento ${cropZoom.toFixed(2)}x`}><input className="w-full accent-orange-500" type="range" min={1} max={3} step={0.05} value={cropZoom} onChange={e=>setCropZoom(Number(e.target.value))}/></Field>
+              <Field label={`Mover horizontal ${cropX}%`}><input className="w-full accent-orange-500" type="range" min={0} max={100} step={1} value={cropX} onChange={e=>setCropX(Number(e.target.value))}/></Field>
+              <Field label={`Mover vertical ${cropY}%`}><input className="w-full accent-orange-500" type="range" min={0} max={100} step={1} value={cropY} onChange={e=>setCropY(Number(e.target.value))}/></Field>
+            </div>
+            <div className="mt-5 grid items-end gap-4 md:grid-cols-[160px_160px_1fr]">
+              <Field label="Ancho final px"><input type="number" min={320} max={1600} className="input-dark" value={cropWidth} onChange={e=>setOutputWidth(Number(e.target.value))}/></Field>
+              <Field label="Alto final px"><input type="number" min={400} max={2000} className="input-dark" value={cropHeight} onChange={e=>setOutputHeight(Number(e.target.value))}/></Field>
+              <div className="flex flex-wrap gap-2">{[600,800,1000,1200].map(width=><button key={width} type="button" className={`rounded-full border px-3 py-2 text-xs font-bold transition ${cropWidth===width?'border-orange-400 bg-orange-500/15 text-orange-100':'border-white/10 bg-white/5 text-white/60 hover:border-white/25'}`} onClick={()=>setOutputWidth(width)}>{width} x {width*1.25}</button>)}</div>
+            </div>
+            <p className="admin-muted mt-3 text-xs">La proporcion 4:5 se mantiene para que la tienda no vuelva a cortar la imagen.</p>
+            <button type="button" disabled={cropBusy} className="btn-ember mt-5 justify-center disabled:opacity-50" onClick={applyCrop}>{cropBusy?'Aplicando...':'Aplicar recorte'}</button>
+            <p className="admin-muted mt-2 text-xs">Tambien puedes guardar directamente: el sistema aplicara el recorte visible de forma automatica.</p>
+          </div>
+        </div>}
+        <p className="admin-muted mt-3 text-sm">Haz click sobre la foto para mover la etiqueta. Usa los controles para encuadrar la imagen; lo guardado sera exactamente lo que vera el cliente.</p>
+      </Panel>
+    </div>
+    <Panel title="Fotos guardadas">
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+        {models.map((m:any)=><div key={m.id} className="rounded-3xl border border-white/10 bg-black/30 p-4">
+          <div className="relative aspect-[4/5] overflow-hidden rounded-[2.2rem] bg-black">
+            <img src={m.imageUrl} className="h-full w-full object-cover"/>
+            <ModelProductTag
+              x={m.tagX}
+              y={m.tagY}
+              dotSize={m.tagDotSize}
+              labelSize={m.tagLabelSize}
+              labelOffsetX={m.tagLabelOffsetX}
+              labelOffsetY={m.tagLabelOffsetY}
+              label={m.product?.name||'Etiqueta'}
+              animated={false}
+            />
+          </div>
+          <div className="mt-3 flex items-start justify-between gap-3"><div><b>{m.product?.name||'Producto eliminado'}</b><p className="text-sm text-white/45">{m.drop?.title||'Foto independiente'} · orden {m.sortOrder} · {m.isActive?'visible':'oculta'}</p>{m.caption&&<p className="mt-1 text-sm text-white/55">{m.caption}</p>}</div><span className={`rounded-full px-3 py-1 text-xs font-bold ${m.isActive?'bg-green-500/15 text-green-200':'bg-white/10 text-white/45'}`}>{m.isActive?'ON':'OFF'}</span></div>
+          <div className="mt-4 flex flex-wrap gap-2"><button className="btn-ghost" onClick={()=>edit(m)}>Editar</button><button className="rounded-full bg-red-500/10 px-4 py-2 text-sm font-bold text-red-100" onClick={()=>{if(confirm('Eliminar esta foto de modelo?'))del.mutate(m.id)}}><Trash2 size={14} className="mr-2 inline"/>Eliminar</button></div>
+        </div>)}
+      </div>
+      {!models.length&&<Empty text="Aun no has agregado fotos de modelos."/>}
+    </Panel>
+  </div>;
+}
+
 export default function Admin(){
   const [tab,setTab]=useState<Tab>('overview');
   const {user,logout}=useAuth();
@@ -1310,11 +1728,11 @@ export default function Admin(){
     {tab==='products'&&<ProductsTabV2/>}
     {tab==='categories'&&<CategoriesTabV2/>}
     {tab==='orders'&&<OrdersTabFull/>}
-    {tab==='drops'&&<DropsTab/>}
-    {tab==='models'&&<ModelsTab/>}
+    {tab==='drops'&&<DropsTabV2/>}
+    {tab==='models'&&<ModelsTabV2/>}
     {tab==='content'&&<ContentTab/>}
     {tab==='popups'&&<MarketingPopupsTabV2/>}
-    {tab==='shipping'&&<ShippingTab/>}
+    {tab==='shipping'&&<ShippingTabV2/>}
     {tab==='users'&&<UsersTabV2/>}
     {tab==='finance'&&<FinanceTab/>}
     {tab==='reports'&&<SalesDashboardTabV2/>}

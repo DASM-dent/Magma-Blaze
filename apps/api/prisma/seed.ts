@@ -77,7 +77,8 @@ async function main() {
     { key:'showNews', value:'true' },
     { key:'showCategories', value:'true' },
     { key:'showFeatured', value:'true' },
-    { key:'showFooter', value:'true' }
+    { key:'showFooter', value:'true' },
+    { key:'showShippingInfo', value:'true' }
   ]});
 
   await prisma.contentBlock.createMany({ data: [
@@ -135,6 +136,90 @@ async function main() {
       title: '¿Que pasa si necesito ayuda con mi pedido?',
       body: 'Puedes escribirnos desde la seccion de ayuda, WhatsApp o mensajes de tu cuenta. Te damos atencion personalizada para dudas, cambios y seguimiento.',
       sortOrder: 8,
+      isActive: true
+    },
+    {
+      area: 'TERMS',
+      title: 'Uso del sitio',
+      body: 'El catálogo de Magma Blaze se ofrece para consultar productos, características y precios. El uso indebido del sitio, la manipulación de sus funciones o cualquier intento de afectar su disponibilidad puede provocar la restricción de acceso.',
+      sortOrder: 1,
+      isActive: true
+    },
+    {
+      area: 'TERMS',
+      title: 'Disponibilidad y reserva',
+      body: 'Mostrar un producto en el catálogo no constituye una reserva. La pieza queda separada únicamente cuando Magma Blaze confirma expresamente la disponibilidad y las condiciones de la solicitud.',
+      sortOrder: 2,
+      isActive: true
+    },
+    {
+      area: 'TERMS',
+      title: 'Precios y promociones',
+      body: 'Los precios y promociones pueden cambiar antes de que una solicitud sea confirmada. Nunca aplicaremos un cambio retroactivo a una compra que ya haya sido aceptada y confirmada por ambas partes.',
+      sortOrder: 3,
+      isActive: true
+    },
+    {
+      area: 'TERMS',
+      title: 'Representación de los productos',
+      body: 'Procuramos que las fotografías y descripciones sean fieles al producto. El color puede variar ligeramente según la iluminación de la foto, la pantalla utilizada o pequeños detalles propios de cada pieza.',
+      sortOrder: 4,
+      isActive: true
+    },
+    {
+      area: 'TERMS',
+      title: 'Contenido y propiedad de la marca',
+      body: 'Las fotografías, textos, logotipos, diseños y demás contenido de Magma Blaze no pueden copiarse, modificarse o utilizarse comercialmente sin autorización previa.',
+      sortOrder: 5,
+      isActive: true
+    },
+    {
+      area: 'TERMS',
+      title: 'Actualización de estas condiciones',
+      body: 'Podemos actualizar estas condiciones para reflejar cambios en el funcionamiento de la tienda. La versión visible en esta página será la aplicable desde su fecha de publicación.',
+      sortOrder: 6,
+      isActive: true
+    },
+    {
+      area: 'PRIVACY',
+      title: 'Información que utilizamos',
+      body: 'Tratamos únicamente la información necesaria para responder consultas, identificar una solicitud y coordinar la atención, como nombre, datos de contacto y detalles de los productos de interés.',
+      sortOrder: 1,
+      isActive: true
+    },
+    {
+      area: 'PRIVACY',
+      title: 'Carrito guardado en tu navegador',
+      body: 'El carrito y algunas preferencias pueden almacenarse localmente en tu dispositivo para que permanezcan disponibles cuando vuelvas. Puedes eliminarlos al vaciar el carrito o borrar los datos del navegador.',
+      sortOrder: 2,
+      isActive: true
+    },
+    {
+      area: 'PRIVACY',
+      title: 'Cómo usamos la información',
+      body: 'La información se usa para atenderte, mantener el funcionamiento del sitio, prevenir usos indebidos y mejorar la experiencia de compra. No vendemos tus datos personales.',
+      sortOrder: 3,
+      isActive: true
+    },
+    {
+      area: 'PRIVACY',
+      title: 'Proveedores necesarios',
+      body: 'Algunos datos pueden ser procesados por proveedores técnicos indispensables para operar la tienda, como alojamiento, base de datos, correo o mensajería. Solo reciben la información necesaria para prestar su servicio.',
+      sortOrder: 4,
+      isActive: true
+    },
+    {
+      area: 'PRIVACY',
+      title: 'Conservación y eliminación',
+      body: 'Conservamos la información durante el tiempo necesario para atender la solicitud, cumplir obligaciones aplicables y proteger la operación de la tienda. Puedes pedir la corrección o eliminación de tus datos cuando corresponda.',
+      sortOrder: 5,
+      isActive: true
+    },
+    {
+      area: 'PRIVACY',
+      title: 'Seguridad y tus derechos',
+      body: 'Aplicamos medidas razonables para limitar accesos no autorizados. Si deseas consultar, corregir o solicitar la eliminación de tu información, puedes comunicarte mediante los canales oficiales de Magma Blaze.',
+      sortOrder: 6,
       isActive: true
     }
   ]});

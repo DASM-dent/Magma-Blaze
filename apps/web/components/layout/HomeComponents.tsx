@@ -8,6 +8,7 @@ import { api } from "@/lib/api";
 import { dropApi } from "@/services/api";
 import { useStoreLocale } from "@/context/LocaleContext";
 import { STORE_WHATSAPP_URL } from "@/lib/whatsapp";
+import ScrollReveal from "@/components/ui/ScrollReveal";
 
 // ─── Drop Teaser Banner ───────────────────────────────────────
 export function DropTeaser() {
@@ -19,9 +20,10 @@ export function DropTeaser() {
     <section className="py-4 px-4 md:px-6">
       <div className="max-w-7xl mx-auto">
         <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          whileInView={{ opacity: 1, y: 0 }}
-          viewport={{ once: true }}
+          initial={{ opacity: 0, y: 36, filter: "blur(8px)" }}
+          whileInView={{ opacity: 1, y: 0, filter: "blur(0px)" }}
+          viewport={{ once: true, amount: 0.3 }}
+          transition={{ duration: 0.78, ease: [0.22, 1, 0.36, 1] }}
           className="relative overflow-hidden p-8 md:p-12"
           style={{
             background: "linear-gradient(135deg, #1a0a00 0%, #0f0f0f 50%, #1a0a00 100%)",
@@ -67,11 +69,18 @@ export function CategoryGrid() {
   return (
     <section className="py-24 px-4 md:px-6">
       <div className="max-w-7xl mx-auto">
-        <p className="font-heading text-xs uppercase tracking-[0.3em] text-ember-DEFAULT mb-2">{t("home.explore")}</p>
-        <h2 className="font-heading text-4xl md:text-5xl font-700 text-white mb-10">{t("home.categories")}</h2>
+        <ScrollReveal>
+          <p className="font-heading text-xs uppercase tracking-[0.3em] text-ember-DEFAULT mb-2">{t("home.explore")}</p>
+          <h2 className="font-heading text-4xl md:text-5xl font-700 text-white mb-10">{t("home.categories")}</h2>
+        </ScrollReveal>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           {categories.map((cat: any, i: number) => (
-            <motion.div key={cat.slug} initial={{ opacity: 0, y: 20 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }} transition={{ delay: i * 0.1 }}>
+            <ScrollReveal
+              key={cat.slug}
+              delay={Math.min(i * 0.07, 0.28)}
+              distance={30}
+              amount={0.16}
+            >
               <Link href={`/catalogo?categoria=${cat.slug}`} className="group relative flex aspect-[4/3] flex-col items-center justify-center gap-3 overflow-hidden p-5 text-center transition-all duration-300 [&>span]:relative [&>span]:z-10" style={{ background: "#141414", border: "1px solid #2a2a2a" }}>
                 {cat.imageUrl && <img src={cat.imageUrl} alt={cat.name} className="absolute inset-0 h-full w-full object-cover opacity-70 transition duration-500 group-hover:scale-105 group-hover:opacity-85" loading="lazy" />}
                 {cat.imageUrl && <span className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/25 to-black/15" />}
@@ -80,7 +89,7 @@ export function CategoryGrid() {
                 <span className="relative z-10 text-xs text-white/55">{cat._count?.products || 0} {t("home.products")}</span>
                 <ArrowRight className="relative z-10 w-4 h-4 text-white/30 group-hover:text-ember-DEFAULT group-hover:translate-x-1 transition-all" />
               </Link>
-            </motion.div>
+            </ScrollReveal>
           ))}
         </div>
       </div>
@@ -94,14 +103,11 @@ export function Footer() {
   const whatsappUrl = STORE_WHATSAPP_URL;
   const { data: site } = useQuery({ queryKey: ["site-state", "footer"], queryFn: () => dropApi.siteState().then(r => r.data) });
   const { data: support = [] } = useQuery({ queryKey: ["footer-support"], queryFn: () => api<any[]>("/content?area=FOOTER_SUPPORT") });
-  const { data: privacy = [] } = useQuery({ queryKey: ["footer-privacy"], queryFn: () => api<any[]>("/content?area=PRIVACY") });
-  const { data: terms = [] } = useQuery({ queryKey: ["footer-terms"], queryFn: () => api<any[]>("/content?area=TERMS") });
   if (site?.publicSettings?.showFooter === false) return null;
   const knownTitle = (title: string) => {
     const key = title.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
     const map: Record<string, string> = {
       envios: t('footer.shipping'),
-      devoluciones: t('footer.returns'),
       faq: 'FAQ',
       contacto: t('content.contact'),
       privacidad: t('footer.privacy'),
@@ -109,12 +115,17 @@ export function Footer() {
     };
     return map[key] || title;
   };
-  const supportLinks = support.length ? support : [
-    { title: t('footer.shipping'), url: '/envios' }, { title: t('footer.returns'), url: '/devoluciones' }, { title: 'FAQ', url: '/faq' }, { title: t('content.contact'), url: '/contacto' }
+  const visibleSupport = support.filter((item:any)=>{
+    const title = String(item.title||'').toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+    const url = String(item.url||'').toLowerCase();
+    return title !== 'devoluciones' && !url.includes('/devoluciones');
+  });
+  const supportLinks = visibleSupport.length ? visibleSupport : [
+    { title: t('footer.shipping'), url: '/envios' }, { title: 'FAQ', url: '/faq' }, { title: t('content.contact'), url: '/contacto' }
   ];
   const legalLinks = [
-    ...(privacy.length ? privacy.map((x:any)=>({ ...x, url: x.url || '/privacidad' })) : [{ title: t('footer.privacy'), url: '/privacidad' }]),
-    ...(terms.length ? terms.map((x:any)=>({ ...x, url: x.url || '/terminos' })) : [{ title: t('footer.terms'), url: '/terminos' }]),
+    { title: t('footer.privacy'), url: '/privacidad' },
+    { title: t('footer.terms'), url: '/terminos' },
   ];
   return (
     <footer className="border-t border-white/10 py-16 px-4 md:px-6">

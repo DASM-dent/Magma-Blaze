@@ -30,6 +30,7 @@ router.get('/site-state', async (_req, res) => {
     showCategories: map.showCategories !== 'false',
     showFeatured: map.showFeatured !== 'false',
     showFooter: map.showFooter !== 'false',
+    showShippingInfo: map.showShippingInfo !== 'false',
   };
 
   if (storeMode === 'MAINTENANCE') {
@@ -54,12 +55,17 @@ router.get('/site-state', async (_req, res) => {
 router.get('/active/models', async (_req, res) => {
   const settings = await prisma.siteSetting.findMany();
   const map = Object.fromEntries(settings.map((s) => [s.key, s.value]));
-  if (map.storeMode !== 'DROP' || map.showModels !== 'true') return res.json({ drop:null, photos:[] });
+  if (map.showModels === 'false') return res.json({ drop:null, photos:[] });
 
-  const drop = await prisma.drop.findFirst({ where:{ isActive:true }, orderBy:{ startsAt:'asc' }});
-  if (!drop) return res.json({ drop:null, photos:[] });
-  const photos = await prisma.modelPhoto.findMany({ where:{ dropId:drop.id, isActive:true }, orderBy:[{ sortOrder:'asc' }, { createdAt:'desc' }], include:{ product:true }});
-  res.json({ drop: mapDrop(drop), photos: photos.map((m:any)=>({ id:m.id, imageUrl:m.imageUrl, caption:m.caption, tagX:m.tagX, tagY:m.tagY, product:{ id:m.product.id, name:m.product.name, slug:m.product.slug, price:Math.round(m.product.price/100), imageUrl:m.product.imageUrl }})) });
+  const photos = await prisma.modelPhoto.findMany({ where:{ isActive:true }, orderBy:[{ sortOrder:'asc' }, { createdAt:'desc' }], include:{ product:true }});
+  const drop = await prisma.drop.findFirst({
+    where:{ isActive:true, modelPhotos:{some:{isActive:true}} },
+    orderBy:{ startsAt:'desc' },
+  }) || await prisma.drop.findFirst({
+    where:{ modelPhotos:{some:{isActive:true}} },
+    orderBy:{ startsAt:'desc' },
+  });
+  res.json({ drop: mapDrop(drop), photos: photos.map((m:any)=>({ id:m.id, imageUrl:m.imageUrl, caption:m.caption, tagX:m.tagX, tagY:m.tagY, tagDotSize:m.tagDotSize, tagLabelSize:m.tagLabelSize, tagLabelOffsetX:m.tagLabelOffsetX, tagLabelOffsetY:m.tagLabelOffsetY, product:{ id:m.product.id, name:m.product.name, slug:m.product.slug, price:Math.round(m.product.price/100), imageUrl:m.product.imageUrl }})) });
 });
 
 router.post('/notify', async (req, res) => {

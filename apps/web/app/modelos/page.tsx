@@ -2,40 +2,120 @@
 
 import Link from 'next/link';
 import { useQuery } from '@tanstack/react-query';
-import { Camera, Flame } from 'lucide-react';
+import { motion } from 'framer-motion';
+import { ArrowRight, Camera, Images, Sparkles } from 'lucide-react';
 import { api } from '@/lib/api';
 import { useStoreLocale } from '@/context/LocaleContext';
+import { ModelProductTag } from '@/components/ModelProductTag';
+import ScrollReveal from '@/components/ui/ScrollReveal';
 
-type ModelPhoto = { id:string; imageUrl:string; caption?:string; tagX:number; tagY:number; product:{ name:string; slug:string; price:number } };
+type ModelPhoto = {
+  id: string;
+  imageUrl: string;
+  caption?: string;
+  tagX: number;
+  tagY: number;
+  tagDotSize: number;
+  tagLabelSize: number;
+  tagLabelOffsetX: number;
+  tagLabelOffsetY: number;
+  product: { name: string; slug: string; price: number };
+};
 
 export default function ModelosPage() {
   const { t } = useStoreLocale();
-  const { data, isLoading } = useQuery({ queryKey:['public-model-photos'], queryFn:()=>api<{drop:any; photos:ModelPhoto[]}>('/drops/active/models') });
-  if (isLoading) return <main className="min-h-screen bg-black pt-28 text-white"><p className="text-center text-white/50">{t('models.loading')}...</p></main>;
-  if (!data?.drop) return <main className="min-h-screen bg-[#050403] px-4 pt-32 text-white"><section className="mx-auto max-w-4xl rounded-[2rem] border border-white/10 bg-white/[.035] p-8 text-center"><p className="text-xs font-bold uppercase tracking-[.22em] text-orange-300">{t('models.closed')}</p><h1 className="mt-3 soft-title text-4xl md:text-5xl">{t('models.closedTitle')}</h1><p className="mx-auto mt-4 max-w-2xl text-white/55">{t('models.closedCopy')}</p><Link href="/drops" className="btn-ember mt-8 inline-flex">{t('home.viewDrops')}</Link></section></main>;
-  return <main className="min-h-screen bg-[#050403] pt-24 text-white">
-    <section className="mx-auto max-w-7xl px-4 py-12 md:px-6">
-      <div className="mb-10 flex flex-wrap items-end justify-between gap-5">
-        <div>
-          <p className="mb-3 flex items-center gap-2 text-xs font-bold uppercase tracking-[0.28em] text-orange-300"><Flame size={16} /> {t('models.active')}</p>
-          <h1 className="soft-title text-5xl md:text-6xl">{t('models.title')}</h1>
-          <p className="mt-4 max-w-2xl text-white/55">{t('models.copy')}</p>
-        </div>
-        <Link href="/catalogo" className="btn-ember">{t('hero.collection')}</Link>
-      </div>
-      <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-3">
-        {data.photos.map((photo)=><article key={photo.id} className="group overflow-hidden rounded-[2.2rem] border border-white/10 bg-white/[.035]">
-          <div className="relative aspect-[4/5] overflow-hidden">
-            <img src={photo.imageUrl} alt={photo.product.name} className="h-full w-full object-cover transition duration-700 group-hover:scale-105" />
-            <Link href={'/producto?slug='+encodeURIComponent(photo.product.slug)} className="absolute -translate-x-1/2 -translate-y-1/2" style={{ left:photo.tagX+'%', top:photo.tagY+'%' }}>
-              <span className="relative flex h-6 w-6"><span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-orange-400 opacity-70" /><span className="relative inline-flex h-6 w-6 rounded-full border-2 border-white bg-orange-500 shadow-[0_0_25px_rgba(255,85,0,.7)]" /></span>
-              <span className="mt-2 block whitespace-nowrap rounded-full bg-black/80 px-4 py-2 text-xs font-black backdrop-blur hover:bg-orange-500 hover:text-black">{photo.product.name}</span>
+  const { data, isLoading } = useQuery({
+    queryKey: ['public-model-photos'],
+    queryFn: () => api<{ drop: unknown; photos: ModelPhoto[] }>('/drops/active/models'),
+  });
+
+  return (
+    <main className="showcase-page">
+      <header className="showcase-hero">
+        <motion.div
+          className="showcase-hero-inner"
+          initial={{ opacity: 0, y: 26 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.72, ease: [0.22, 1, 0.36, 1] }}
+        >
+          <motion.div
+            className="showcase-hero-icon"
+            initial={{ opacity: 0, rotate: -8, scale: 0.86 }}
+            animate={{ opacity: 1, rotate: 0, scale: 1 }}
+            transition={{ duration: 0.6, delay: 0.12 }}
+          >
+            <Images size={27} />
+          </motion.div>
+          <div className="showcase-hero-copy">
+            <h1>{t('models.title')}</h1>
+            <p>{t('models.copy')}</p>
+          </div>
+        </motion.div>
+      </header>
+
+      <section className="showcase-body">
+        {isLoading ? <p className="showcase-loading">{t('models.loading')}...</p> : null}
+
+        {!isLoading && !data?.photos?.length ? (
+          <div className="showcase-empty">
+            <Sparkles size={24} />
+            <div>
+              <h2>{t('models.closedTitle')}</h2>
+              <p>{t('models.closedCopy')}</p>
+            </div>
+            <Link href="/catalogo" className="showcase-link">
+              {t('hero.collection')} <ArrowRight size={16} />
             </Link>
           </div>
-          <div className="p-5"><p className="mb-2 flex items-center gap-2 text-xs uppercase tracking-[0.18em] text-orange-300"><Camera size={14} /> {t('models.tagged')}</p><h2 className="text-xl font-black">{photo.product.name}</h2><p className="mt-2 text-sm text-white/50">{photo.caption || t('models.editorial')}</p></div>
-        </article>)}
-      </div>
-      {!data.photos.length && <div className="rounded-[2rem] border border-dashed border-white/15 p-10 text-center text-white/45">{t('models.empty')}</div>}
-    </section>
-  </main>;
+        ) : null}
+
+        {data?.photos?.length ? (
+          <>
+            <div className="models-lookbook-heading">
+              <div>
+                <h2>Looks etiquetados</h2>
+                <p>Presiona una etiqueta para conocer el producto que aparece en la fotografía.</p>
+              </div>
+              <Link href="/catalogo" className="showcase-link">
+                {t('hero.collection')} <ArrowRight size={16} />
+              </Link>
+            </div>
+
+            <div className="models-lookbook-grid">
+              {data.photos.map((photo, index) => (
+                <ScrollReveal
+                  key={photo.id}
+                  delay={Math.min(index * 0.06, 0.24)}
+                  distance={28}
+                  amount={0.16}
+                  className="model-look"
+                >
+                  <div className="model-look-media">
+                    <img src={photo.imageUrl} alt={photo.product.name} />
+                    <ModelProductTag
+                      x={photo.tagX}
+                      y={photo.tagY}
+                      dotSize={photo.tagDotSize}
+                      labelSize={photo.tagLabelSize}
+                      labelOffsetX={photo.tagLabelOffsetX}
+                      labelOffsetY={photo.tagLabelOffsetY}
+                      label={photo.product.name}
+                      href={`/producto?slug=${encodeURIComponent(photo.product.slug)}`}
+                    />
+                    <span className="model-look-index">{String(index + 1).padStart(2, '0')}</span>
+                  </div>
+
+                  <div className="model-look-copy">
+                    <p><Camera size={14} /> {t('models.tagged')}</p>
+                    <h2>{photo.product.name}</h2>
+                    <span>{photo.caption || t('models.editorial')}</span>
+                  </div>
+                </ScrollReveal>
+              ))}
+            </div>
+          </>
+        ) : null}
+      </section>
+    </main>
+  );
 }

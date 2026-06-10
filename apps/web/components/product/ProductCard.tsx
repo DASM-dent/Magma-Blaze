@@ -2,11 +2,11 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { motion } from "framer-motion";
 import { Heart, ShoppingBag, Flame } from "lucide-react";
 import { useFavorites } from "@/context/FavoritesContext";
 import { useStoreLocale } from "@/context/LocaleContext";
 import { productAvailabilityWhatsappUrl } from "@/lib/whatsapp";
+import ScrollReveal from "@/components/ui/ScrollReveal";
 
 interface Product {
   id: string;
@@ -41,10 +41,10 @@ export default function ProductCard({ product, index = 0 }: { product: Product; 
   const hoverImage = product.images?.[1]?.url && product.images[1].url !== primaryImage ? product.images[1].url : "";
 
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 24 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.5, delay: index * 0.08 }}
+    <ScrollReveal
+      delay={Math.min(index * 0.07, 0.28)}
+      distance={30}
+      amount={0.14}
       className="product-card group"
     >
       {/* Image */}
@@ -150,6 +150,6 @@ export default function ProductCard({ product, index = 0 }: { product: Product; 
           )}
         </div>
       </div>
-    </motion.div>
+    </ScrollReveal>
   );
 }

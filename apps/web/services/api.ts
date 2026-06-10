@@ -50,6 +50,7 @@ export const authApi = {
 
 export const contentApi = {
   list: (area?: string) => api.get(`/content${qs({ area })}`),
+  shippingZones: () => api.get('/content/shipping-zones'),
 };
 
 export { API_URL };

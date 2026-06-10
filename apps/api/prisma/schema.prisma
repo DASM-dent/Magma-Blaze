@@ -521,14 +521,18 @@ model SecurityIpBan {
 
 model ModelPhoto {
   id        String   @id @default(cuid())
-  dropId    String
-  drop      Drop     @relation(fields: [dropId], references: [id])
+  dropId    String?
+  drop      Drop?    @relation(fields: [dropId], references: [id], onDelete: SetNull)
   productId String
   product   Product  @relation(fields: [productId], references: [id])
   imageUrl  String
   caption   String?
   tagX      Int      @default(50)
   tagY      Int      @default(50)
+  tagDotSize Int     @default(24)
+  tagLabelSize Int   @default(12)
+  tagLabelOffsetX Int @default(0)
+  tagLabelOffsetY Int @default(8)
   isActive  Boolean  @default(true)
   sortOrder Int      @default(0)
   createdAt DateTime @default(now())
