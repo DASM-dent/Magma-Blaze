@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { ArrowRight, Flame } from 'lucide-react';
 import DropLockScreen from '@/components/drop/DropLockScreen';
+import PublicSectionGuard from '@/components/layout/PublicSectionGuard';
 import { dropApi } from '@/services/api';
 
 export const metadata: Metadata = {
@@ -23,7 +24,8 @@ export default async function DropsPage() {
 
   if (!activeDrop) {
     return (
-      <main className="drop-empty-page">
+      <PublicSectionGuard setting="showDrops">
+        <main className="drop-empty-page">
         <div className="drop-empty-lines" aria-hidden="true" />
         <section className="drop-empty-content">
           <div className="drop-empty-mark"><Flame size={34} /></div>
@@ -50,9 +52,14 @@ export default async function DropsPage() {
             <span>Una fecha. Un lanzamiento. Unidades limitadas.</span>
           </div>
         </section>
-      </main>
+        </main>
+      </PublicSectionGuard>
     );
   }
 
-  return <DropLockScreen drop={activeDrop} showBack />;
+  return (
+    <PublicSectionGuard setting="showDrops">
+      <DropLockScreen drop={activeDrop} showBack />
+    </PublicSectionGuard>
+  );
 }

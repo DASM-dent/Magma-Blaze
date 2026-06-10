@@ -10,11 +10,13 @@ import { productApi } from "@/services/api";
 import CartDrawer from "@/components/cart/CartDrawer";
 import SearchResults from "@/components/ui/SearchResults";
 import { useStoreLocale } from "@/context/LocaleContext";
+import { usePublicSettings } from "@/hooks/usePublicSettings";
 
 export default function Navbar() {
   const { itemCount, openCart } = useCart();
   const { user } = useAuth();
   const { country, currency, symbol, setCountry, setCurrency, t } = useStoreLocale();
+  const { settings, isError: settingsError } = usePublicSettings();
   const [scrolled, setScrolled] = useState(false);
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<unknown[]>([]);
@@ -63,11 +65,12 @@ export default function Navbar() {
     };
   }, [menuOpen]);
 
+  const sectionIsVisible = (value: boolean | undefined) => settingsError || value === true;
   const navLinks = [
     { href: "/catalogo", label: t("nav.catalog") },
-    { href: "/novedades", label: t("nav.news") },
-    { href: "/drops", label: t("nav.drops") },
-    { href: "/modelos", label: t("nav.models") },
+    ...(sectionIsVisible(settings?.showNews) ? [{ href: "/novedades", label: t("nav.news") }] : []),
+    ...(sectionIsVisible(settings?.showDrops) ? [{ href: "/drops", label: t("nav.drops") }] : []),
+    ...(sectionIsVisible(settings?.showModels) ? [{ href: "/modelos", label: t("nav.models") }] : []),
     { href: "/sobre-nosotros", label: t("nav.about") },
   ];
 

@@ -6,6 +6,7 @@ import { ArrowRight, ChevronDown, ChevronUp, Flame } from "lucide-react";
 import { useEffect, useState } from "react";
 import type { CSSProperties } from "react";
 import { useStoreLocale } from "@/context/LocaleContext";
+import { usePublicSettings } from "@/hooks/usePublicSettings";
 
 const BRAND_WORDS = [
   { text: "MAGMA", className: "hero-brand-magma" },
@@ -16,6 +17,7 @@ export default function HeroSection() {
   const { scrollY } = useScroll();
   const reduceMotion = useReducedMotion();
   const { t } = useStoreLocale();
+  const { settings, isError: settingsError } = usePublicSettings();
   const y = useTransform(scrollY, [0, 600], [0, 120]);
   const opacity = useTransform(scrollY, [0, 520], [1, 0.42]);
   const [showTop, setShowTop] = useState(false);
@@ -66,7 +68,9 @@ export default function HeroSection() {
         </motion.p>
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6, delay: 0.6 }} className="flex flex-col sm:flex-row items-center justify-center gap-4">
           <Link href="/catalogo" className="btn-ember text-base px-8 py-4">{t("hero.collection")} <ArrowRight className="w-4 h-4" /></Link>
-          <Link href="/drops" className="btn-ghost text-base px-8 py-4"><Flame className="w-4 h-4" /> {t("hero.drops")}</Link>
+          {settingsError || settings?.showDrops === true ? (
+            <Link href="/drops" className="btn-ghost text-base px-8 py-4"><Flame className="w-4 h-4" /> {t("hero.drops")}</Link>
+          ) : null}
         </motion.div>
         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 1.5 }} className="hero-scroll-cue pointer-events-none mt-10 flex flex-col items-center gap-1">
           <span className="text-xs text-white/25 uppercase tracking-widest">{t("hero.scroll")}</span>

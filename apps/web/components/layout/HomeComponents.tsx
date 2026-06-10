@@ -9,6 +9,7 @@ import { dropApi } from "@/services/api";
 import { useStoreLocale } from "@/context/LocaleContext";
 import { STORE_WHATSAPP_URL } from "@/lib/whatsapp";
 import ScrollReveal from "@/components/ui/ScrollReveal";
+import { usePublicSettings } from "@/hooks/usePublicSettings";
 
 // ─── Drop Teaser Banner ───────────────────────────────────────
 export function DropTeaser() {
@@ -101,9 +102,11 @@ export function CategoryGrid() {
 export function Footer() {
   const { t } = useStoreLocale();
   const whatsappUrl = STORE_WHATSAPP_URL;
-  const { data: site } = useQuery({ queryKey: ["site-state", "footer"], queryFn: () => dropApi.siteState().then(r => r.data) });
+  const { settings, isError: settingsError } = usePublicSettings();
   const { data: support = [] } = useQuery({ queryKey: ["footer-support"], queryFn: () => api<any[]>("/content?area=FOOTER_SUPPORT") });
-  if (site?.publicSettings?.showFooter === false) return null;
+  if (!settings && !settingsError) return null;
+  if (settings?.showFooter === false) return null;
+  const sectionIsVisible = (value: boolean | undefined) => settingsError || value === true;
   const knownTitle = (title: string) => {
     const key = title.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
     const map: Record<string, string> = {
@@ -118,10 +121,21 @@ export function Footer() {
   const visibleSupport = support.filter((item:any)=>{
     const title = String(item.title||'').toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
     const url = String(item.url||'').toLowerCase();
-    return title !== 'devoluciones' && !url.includes('/devoluciones');
+    const isShipping = title === 'envios' || url.includes('/envios');
+    return title !== 'devoluciones'
+      && !url.includes('/devoluciones')
+      && (!isShipping || sectionIsVisible(settings?.showShippingInfo));
   });
   const supportLinks = visibleSupport.length ? visibleSupport : [
-    { title: t('footer.shipping'), url: '/envios' }, { title: 'FAQ', url: '/faq' }, { title: t('content.contact'), url: '/contacto' }
+    ...(sectionIsVisible(settings?.showShippingInfo) ? [{ title: t('footer.shipping'), url: '/envios' }] : []),
+    { title: 'FAQ', url: '/faq' },
+    { title: t('content.contact'), url: '/contacto' }
+  ];
+  const shopLinks = [
+    { href: '/catalogo', label: t('nav.catalog') },
+    ...(sectionIsVisible(settings?.showNews) ? [{ href: '/novedades', label: t('nav.news') }] : []),
+    ...(sectionIsVisible(settings?.showDrops) ? [{ href: '/drops', label: t('nav.drops') }] : []),
+    ...(sectionIsVisible(settings?.showModels) ? [{ href: '/modelos', label: t('nav.models') }] : []),
   ];
   const legalLinks = [
     { title: t('footer.privacy'), url: '/privacidad' },
@@ -136,7 +150,7 @@ export function Footer() {
             <p className="text-white/30 text-sm leading-relaxed max-w-xs">{t("footer.copy")}</p>
             <div className="flex gap-4 mt-6"><a href="https://instagram.com/magmablazelv" target="_blank" rel="noopener noreferrer" aria-label="Instagram Magma Blaze" className="text-white/30 hover:text-white"><Instagram className="w-5 h-5" /></a><a href={whatsappUrl} target="_blank" rel="noopener noreferrer" aria-label="WhatsApp Magma Blaze" className="text-white/30 hover:text-white"><MessageCircle className="w-5 h-5" /></a></div>
           </div>
-          <div><h4 className="text-sm uppercase tracking-[0.2em] text-white/40 mb-4">{t("footer.shop")}</h4><ul className="space-y-2">{[{href:'/catalogo',label:t('nav.catalog')},{href:'/novedades',label:t('nav.news')},{href:'/drops',label:t('nav.drops')},{href:'/modelos',label:t('nav.models')}].map(l=><li key={l.href}><Link href={l.href} className="text-sm text-white/50 hover:text-white">{l.label}</Link></li>)}</ul></div>
+          <div><h4 className="text-sm uppercase tracking-[0.2em] text-white/40 mb-4">{t("footer.shop")}</h4><ul className="space-y-2">{shopLinks.map(l=><li key={l.href}><Link href={l.href} className="text-sm text-white/50 hover:text-white">{l.label}</Link></li>)}</ul></div>
           <div><h4 className="text-sm uppercase tracking-[0.2em] text-white/40 mb-4">{t("footer.support")}</h4><ul className="space-y-2">{supportLinks.map((l:any)=><li key={l.id||l.url||l.title}><Link href={l.url||'#'} className="text-sm text-white/50 hover:text-white">{knownTitle(l.title)}</Link></li>)}</ul></div>
         </div>
         <div className="divider-ember mb-8" />

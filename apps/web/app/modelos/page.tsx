@@ -8,6 +8,7 @@ import { api } from '@/lib/api';
 import { useStoreLocale } from '@/context/LocaleContext';
 import { ModelProductTag } from '@/components/ModelProductTag';
 import ScrollReveal from '@/components/ui/ScrollReveal';
+import PublicSectionGuard from '@/components/layout/PublicSectionGuard';
 
 type ModelPhoto = {
   id: string;
@@ -23,6 +24,14 @@ type ModelPhoto = {
 };
 
 export default function ModelosPage() {
+  return (
+    <PublicSectionGuard setting="showModels">
+      <ModelosContent />
+    </PublicSectionGuard>
+  );
+}
+
+function ModelosContent() {
   const { t } = useStoreLocale();
   const { data, isLoading } = useQuery({
     queryKey: ['public-model-photos'],

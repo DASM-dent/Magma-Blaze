@@ -5,36 +5,21 @@ import HeroSection from '@/components/layout/HeroSection';
 import FeaturedProducts from '@/components/product/FeaturedProducts';
 import DropTeaser from '@/components/drop/DropTeaser';
 import CategoryGrid from '@/components/product/CategoryGrid';
-import { contentApi, dropApi } from '@/services/api';
+import { contentApi } from '@/services/api';
 import ScrollReveal from '@/components/ui/ScrollReveal';
-
-type PublicSettings = {
-  showModels?: boolean;
-  showDrops?: boolean;
-  showNews?: boolean;
-  showCategories?: boolean;
-  showFeatured?: boolean;
-  showFooter?: boolean;
-};
+import { usePublicSettings } from '@/hooks/usePublicSettings';
 
 export default function HomeClient() {
-  const [settings, setSettings] = useState<PublicSettings>({
-    showDrops: true,
-    showCategories: true,
-    showFeatured: true,
-  });
+  const { settings, isError: settingsError } = usePublicSettings();
   const [homeBlocks, setHomeBlocks] = useState<any[]>([]);
 
   useEffect(() => {
-    dropApi.siteState()
-      .then(({ data }) => {
-        if (data?.publicSettings) setSettings(data.publicSettings);
-      })
-      .catch(() => null);
     contentApi.list('HOME')
       .then(({ data }) => setHomeBlocks(Array.isArray(data) ? data : []))
       .catch(() => null);
   }, []);
+
+  const sectionIsVisible = (value: boolean | undefined) => settingsError || value === true;
 
   return (
     <>
@@ -51,9 +36,9 @@ export default function HomeClient() {
           </ScrollReveal>
         </section>
       ))}
-      {settings.showDrops !== false && <DropTeaser />}
-      {settings.showFeatured !== false && <FeaturedProducts />}
-      {settings.showCategories !== false && <CategoryGrid />}
+      {sectionIsVisible(settings?.showDrops) ? <DropTeaser /> : null}
+      {sectionIsVisible(settings?.showFeatured) ? <FeaturedProducts /> : null}
+      {sectionIsVisible(settings?.showCategories) ? <CategoryGrid /> : null}
     </>
   );
 }

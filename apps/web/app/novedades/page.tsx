@@ -7,6 +7,7 @@ import { ArrowRight, Newspaper, Sparkles } from 'lucide-react';
 import { api } from '@/lib/api';
 import { useStoreLocale } from '@/context/LocaleContext';
 import ScrollReveal from '@/components/ui/ScrollReveal';
+import PublicSectionGuard from '@/components/layout/PublicSectionGuard';
 
 type NewsPost = {
   id: string;
@@ -40,6 +41,14 @@ type PublicNewsItem = {
 };
 
 export default function NovedadesPage() {
+  return (
+    <PublicSectionGuard setting="showNews">
+      <NovedadesContent />
+    </PublicSectionGuard>
+  );
+}
+
+function NovedadesContent() {
   const { t } = useStoreLocale();
   const { data = [], isLoading, isError, refetch } = useQuery({
     queryKey: ['public-news-v2'],
