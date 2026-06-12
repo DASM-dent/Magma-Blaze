@@ -941,6 +941,7 @@ const SALES_CHANNEL_LABELS: Record<string,string> = {
 const manualSaleSchema = z.object({
   channel:z.enum(SALES_CHANNELS).default('WHATSAPP'),
   customerName:z.string().optional().nullable(),
+  customerPhone:z.string().regex(/^\d{7,15}$/,'El telefono debe contener entre 7 y 15 numeros.').optional().nullable(),
   reference:z.string().optional().nullable(),
   note:z.string().optional().nullable(),
   currency:z.enum(['DOP','USD']).default('DOP'),
@@ -1039,6 +1040,7 @@ router.post('/sales/manual', async(req,res)=>{
         paymentStatus:data.paymentStatus,
         paymentProvider,
         paymentReference:data.reference?.trim()||null,
+        customerPhone:data.customerPhone?.trim()||null,
         addressLine:`Venta manual${data.customerName?.trim()?` - ${data.customerName.trim()}`:''}`,
         adminNote:data.note?.trim()||null,
         deliveredAt:isPaid?new Date():null,
@@ -1078,7 +1080,7 @@ router.post('/sales/manual', async(req,res)=>{
         type:'MANUAL_SALE_CREATED',
         title:`Venta registrada por ${channelLabel}`,
         body:data.note?.trim()||undefined,
-        metadata:JSON.stringify({channel:data.channel,reference:data.reference||null,paymentStatus:data.paymentStatus,paidAmount:centsToUnit(paidAmount),paidByTransfer:data.paidByTransfer}),
+        metadata:JSON.stringify({channel:data.channel,reference:data.reference||null,customerPhone:data.customerPhone||null,paymentStatus:data.paymentStatus,paidAmount:centsToUnit(paidAmount),paidByTransfer:data.paidByTransfer}),
       },
     }).catch(()=>null);
     return created;

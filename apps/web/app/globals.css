@@ -2552,13 +2552,49 @@ button, input, select, textarea { font: inherit; }
   box-shadow: 0 0 18px rgba(255,83,15,.75);
   animation: magma-progress 1.35s .08s cubic-bezier(.22,1,.36,1) both;
 }
-.magma-intro-core > p {
+.magma-intro-status {
+  display: flex;
+  align-items: center;
+  gap: .7rem;
   margin-top: .85rem;
+}
+.magma-intro-status p {
+  margin: 0;
   color: rgba(255,255,255,.38);
   font-size: .68rem;
   font-weight: 850;
   text-transform: uppercase;
   letter-spacing: .24em;
+}
+.magma-intro-spinner {
+  position: relative;
+  display: grid;
+  width: 1.35rem;
+  height: 1.35rem;
+  place-items: center;
+  border: 1px solid rgba(255,255,255,.13);
+  border-radius: 999px;
+  box-shadow: 0 0 18px rgba(255,83,15,.16);
+}
+.magma-intro-spinner::before,
+.magma-intro-spinner i {
+  position: absolute;
+  content: "";
+  border-radius: inherit;
+}
+.magma-intro-spinner::before {
+  inset: -1px;
+  border: 2px solid transparent;
+  border-top-color: #ff6814;
+  border-right-color: rgba(255,155,74,.7);
+  animation: magma-spinner 1s linear infinite;
+}
+.magma-intro-spinner i {
+  width: .28rem;
+  height: .28rem;
+  background: #ffd2b8;
+  box-shadow: 0 0 9px rgba(255,104,20,.9);
+  animation: magma-spinner-core .9s ease-in-out infinite alternate;
 }
 .magma-intro-corner {
   position: absolute;
@@ -2593,6 +2629,13 @@ button, input, select, textarea { font: inherit; }
 @keyframes magma-grid-drift {
   from { transform: translate3d(0,0,0); }
   to { transform: translate3d(72px,72px,0); }
+}
+@keyframes magma-spinner {
+  to { transform: rotate(360deg); }
+}
+@keyframes magma-spinner-core {
+  from { opacity: .45; transform: scale(.72); }
+  to { opacity: 1; transform: scale(1.18); }
 }
 
 /* Drops */
@@ -3061,7 +3104,9 @@ button, input, select, textarea { font: inherit; }
   }
   .magma-intro-grid,
   .magma-intro-sweep,
-  .magma-intro-progress span {
+  .magma-intro-progress span,
+  .magma-intro-spinner::before,
+  .magma-intro-spinner i {
     animation: none;
   }
   .magma-intro-progress span {

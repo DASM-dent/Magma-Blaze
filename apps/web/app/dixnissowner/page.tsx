@@ -158,6 +158,12 @@ function AdminSelect({value,onChange,options,className='',placeholder='Seleccion
   </div>;
 }
 function Panel({title,children,action}:{title:string;children:ReactNode;action?:ReactNode}){return <section className="admin-panel rounded-[1.6rem] p-5"><div className="mb-5 flex flex-wrap items-center justify-between gap-3"><h2 className="admin-panel-title text-xl font-bold">{title}</h2>{action}</div>{children}</section>}
+function CollapsiblePanel({title,children,action,initialOpen=true}:{title:string;children:ReactNode;action?:ReactNode;initialOpen?:boolean}){
+  const [open,setOpen]=useState(initialOpen);
+  return <Panel title={title} action={<div className="flex flex-wrap items-center gap-2">{action}<button type="button" className="btn-ghost rounded-full px-4 py-2 text-xs" onClick={()=>setOpen(current=>!current)} aria-expanded={open}><ChevronDown size={15} className={open?'rotate-180 transition':'transition'}/>{open?'Minimizar':'Abrir'}</button></div>}>
+    {open?children:<div className="admin-collapsed-summary rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-white/45">Seccion minimizada. Presiona <b className="text-white/70">Abrir</b> para ver la informacion.</div>}
+  </Panel>;
+}
 function Empty({text}:{text:string}){return <div className="admin-empty rounded-2xl border border-dashed p-5 text-center text-sm">{text}</div>}
 function Toolbar({title,subtitle,search,setSearch,children}:{title:string;subtitle:string;search?:string;setSearch?:(v:string)=>void;children?:ReactNode}){return <div className="admin-toolbar mb-6 flex flex-wrap items-center justify-between gap-4 rounded-[1.6rem] p-5"><div><h1 className="text-2xl font-bold">{title}</h1><p className="admin-muted text-sm">{subtitle}</p></div><div className="flex flex-wrap items-center gap-3">{setSearch&&<div className="admin-search flex min-w-[250px] items-center gap-2 rounded-full px-4 py-2"><Search size={16}/><input value={search||''} onChange={e=>setSearch(e.target.value)} placeholder="Buscar..." className="w-full bg-transparent text-sm outline-none"/></div>}{children}</div></div>}
 function Stat({title,value,detail}:{title:string;value:any;detail:string}){return <div className="admin-stat rounded-[1.4rem] p-5"><span className="admin-muted text-sm">{title}</span><p className="mt-3 text-3xl font-black">{value}</p><p className="admin-muted mt-2 text-xs">{detail}</p></div>}
@@ -507,9 +513,10 @@ function ManualSaleForm({products,onSaved}:{products:any[];onSaved?:()=>void}){
   const [paymentStatus,setPaymentStatus]=useState<'PENDING'|'PARTIAL'|'PAID'>('PENDING');
   const [paidAmount,setPaidAmount]=useState(0);
   const [customerName,setCustomerName]=useState('');
+  const [customerPhone,setCustomerPhone]=useState('');
   const [reference,setReference]=useState('');
   const [note,setNote]=useState('');
-  const blankSaleItem=()=>({productId:'',variantId:'',quantity:1,unitPrice:0});
+  const blankSaleItem=()=>({productId:'',variantId:'',quantity:1,unitPrice:0,pickerOpen:true});
   const [items,setItems]=useState<any[]>(()=>[blankSaleItem()]);
   useEffect(()=>{if(!items.length)setItems([blankSaleItem()]);},[items.length]);
   const updateItem=(index:number,patch:any)=>setItems(current=>current.map((item,i)=>i===index?{...item,...patch}:item));
@@ -530,6 +537,7 @@ function ManualSaleForm({products,onSaved}:{products:any[];onSaved?:()=>void}){
     mutationFn:()=>api('/admin/sales/manual',{method:'POST',body:JSON.stringify({
       channel,
       customerName:customerName||null,
+      customerPhone:customerPhone||null,
       reference:reference||null,
       note:note||null,
       currency:'DOP',
@@ -546,6 +554,7 @@ function ManualSaleForm({products,onSaved}:{products:any[];onSaved?:()=>void}){
       qc.invalidateQueries({queryKey:['admin-inventory-movements']});
       toast.success(paymentStatus==='PAID'?'Venta registrada e inventario actualizado':'Venta registrada como pendiente de confirmacion');
       setCustomerName('');
+      setCustomerPhone('');
       setReference('');
       setNote('');
       setPaidByTransfer(false);
@@ -581,6 +590,9 @@ function ManualSaleForm({products,onSaved}:{products:any[];onSaved?:()=>void}){
           <Field label="Cliente / referencia visible">
             <input className="input-dark" value={customerName} onChange={e=>setCustomerName(e.target.value)} placeholder="Ej: Maria, tienda fisica, pedido IG"/>
           </Field>
+          <Field label="Numero de telefono del cliente" hint="Opcional. Solo se permiten numeros para facilitar la busqueda.">
+            <input type="tel" inputMode="numeric" pattern="[0-9]*" maxLength={15} className="input-dark" value={customerPhone} onChange={e=>setCustomerPhone(e.target.value.replace(/\D/g,'').slice(0,15))} placeholder="Ej: 18492757807"/>
+          </Field>
           <Field label="Numero de recibo o comprobante">
             <input className="input-dark" value={reference} onChange={e=>setReference(e.target.value)} placeholder="Transferencia, recibo o nota corta"/>
           </Field>
@@ -597,14 +609,26 @@ function ManualSaleForm({products,onSaved}:{products:any[];onSaved?:()=>void}){
           const maxStock=variant?variant.stock:availableStockFor(selected);
           return <div key={index} className="rounded-[1.4rem] border border-white/10 bg-black/25 p-4">
             <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-              <div><b>Producto {index+1}</b><p className="text-xs text-white/45">{selected?selected.name:'Selecciona desde la lista visual'}</p></div>
-              <button type="button" className="grid h-10 w-10 place-items-center rounded-2xl border border-red-400/20 bg-red-500/10 text-red-200 transition hover:bg-red-500/20 disabled:opacity-35" onClick={()=>removeItem(index)} disabled={items.length===1}><Trash2 size={16}/></button>
+              <div><b>Producto {index+1}</b><p className="text-xs text-white/45">{selected?'Producto seleccionado':'Selecciona desde la lista visual'}</p></div>
+              <div className="flex items-center gap-2">
+                {selected&&<button type="button" className="btn-ghost rounded-full px-4 py-2 text-xs" onClick={()=>updateItem(index,{pickerOpen:!item.pickerOpen})}>{item.pickerOpen?'Cerrar catalogo':'Cambiar producto'}</button>}
+                <button type="button" className="grid h-10 w-10 place-items-center rounded-2xl border border-red-400/20 bg-red-500/10 text-red-200 transition hover:bg-red-500/20 disabled:opacity-35" onClick={()=>removeItem(index)} disabled={items.length===1}><Trash2 size={16}/></button>
+              </div>
             </div>
-            <div className="grid max-h-[360px] gap-3 overflow-auto pr-1 md:grid-cols-2">
+            {selected&&<div className="mb-4 flex flex-wrap items-center gap-4 rounded-2xl border border-orange-400/25 bg-orange-500/10 p-3">
+              {productImage(selected)?<img src={productImage(selected)} alt={selected.name} className="h-20 w-20 rounded-2xl object-cover"/>:<span className="grid h-20 w-20 place-items-center rounded-2xl bg-white/10 text-xs text-white/35">Sin foto</span>}
+              <div className="min-w-0 flex-1">
+                <b className="block truncate">{selected.name}</b>
+                <p className="mt-1 text-sm text-white/50">{money(item.unitPrice||selected.salePrice||selected.price)} · disponibles {maxStock??0}</p>
+                <p className="mt-1 text-xs text-orange-100/75">{selected.categoryName||selected.category?.name||'Sin categoria'}</p>
+              </div>
+              <Check size={20} className="text-orange-300"/>
+            </div>}
+            {(!selected||item.pickerOpen)&&<div className="grid max-h-[360px] gap-3 overflow-auto pr-1 md:grid-cols-2">
               {visibleProducts.map((product:any)=>{
                 const stock=availableStockFor(product);
                 const selectedProduct=item.productId===product.id;
-                return <button key={product.id} type="button" onClick={()=>updateItem(index,{productId:product.id,variantId:'',unitPrice:product.salePrice??product.price??0})} className={`flex items-center gap-3 rounded-2xl border p-3 text-left transition hover:-translate-y-0.5 hover:border-orange-400/45 ${selectedProduct?'border-orange-400 bg-orange-500/15':'border-white/10 bg-black/30'}`}>
+                return <button key={product.id} type="button" onClick={()=>updateItem(index,{productId:product.id,variantId:'',unitPrice:product.salePrice??product.price??0,pickerOpen:false})} className={`flex items-center gap-3 rounded-2xl border p-3 text-left transition hover:-translate-y-0.5 hover:border-orange-400/45 ${selectedProduct?'border-orange-400 bg-orange-500/15':'border-white/10 bg-black/30'}`}>
                   {productImage(product)?<img src={productImage(product)} alt={product.name} className="h-16 w-16 rounded-2xl object-cover"/>:<span className="grid h-16 w-16 place-items-center rounded-2xl bg-white/10 text-xs text-white/35">Sin foto</span>}
                   <span className="min-w-0 flex-1">
                     <b className="block truncate text-sm">{product.name}</b>
@@ -613,8 +637,8 @@ function ManualSaleForm({products,onSaved}:{products:any[];onSaved?:()=>void}){
                   {selectedProduct?<Check size={18} className="text-orange-300"/>:Number(stock)<=Number(product.lowStockThreshold??5)&&<span className="rounded-full bg-orange-500/15 px-2 py-1 text-[10px] font-bold text-orange-100">Bajo</span>}
                 </button>;
               })}
-            </div>
-            <div className="mt-4 grid gap-3 md:grid-cols-[1fr_100px_132px]">
+            </div>}
+            {selected&&<div className="mt-4 grid gap-3 md:grid-cols-[1fr_100px_132px]">
               <Field label="Opcion del producto">
                 <AdminSelect value={item.variantId||''} onChange={value=>{const nextVariant=variants.find((v:any)=>v.id===value);updateItem(index,{variantId:value,unitPrice:nextVariant?.price??selected?.salePrice??selected?.price??0});}} options={variants.length?[{value:'',label:'Selecciona opcion'},...variants.map((variant:any)=>({value:variant.id,label:variantLabel(variant)+' · stock '+variant.stock}))]:[{value:'',label:'Sin opciones'}]}/>
               </Field>
@@ -624,11 +648,11 @@ function ManualSaleForm({products,onSaved}:{products:any[];onSaved?:()=>void}){
               <Field label="Precio RD$">
                 <input type="number" min={0} step="0.01" className="input-dark" value={item.unitPrice} onChange={e=>updateItem(index,{unitPrice:Number(e.target.value)})}/>
               </Field>
-            </div>
-            <div className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-white/[.03] px-4 py-3 text-sm text-white/45">
+            </div>}
+            {selected&&<div className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-white/[.03] px-4 py-3 text-sm text-white/45">
               <span>{selected?.categoryName||selected?.category?.name||'Sin categoria'} · {variants.length?`opcion: ${variant?variantLabel(variant):'pendiente'}`:'stock general'} · disponibles {maxStock??0}</span>
               <b className="text-white">{money(Number(item.quantity||0)*Number(item.unitPrice||0))}</b>
-            </div>
+            </div>}
           </div>;
         })}
         <div className="flex flex-wrap items-center justify-between gap-3 rounded-[1.4rem] border border-orange-400/20 bg-orange-500/10 p-4">
@@ -764,6 +788,9 @@ function SalesTab(){
   const qc=useQueryClient();
   const today=new Date().toISOString().slice(0,10);
   const [month,setMonth]=useState(today.slice(0,7));
+  const [salesSearch,setSalesSearch]=useState('');
+  const [channelFilter,setChannelFilter]=useState('');
+  const [paymentFilter,setPaymentFilter]=useState('');
   const {data:products=[]}=useQuery({queryKey:['admin-products-for-sale'],queryFn:()=>api<any[]>('/admin/products')});
   const {data:salesData,isLoading}=useQuery({queryKey:['admin-sales-dashboard',month,'manual'],queryFn:()=>api<any>(`/admin/reports?month=${encodeURIComponent(month)}`)});
   const lowStock=products.filter((product:any)=>Number(availableStockFor(product)||0)<=Number(product.lowStockThreshold??5));
@@ -787,6 +814,27 @@ function SalesTab(){
   const chartMax=Math.max(4,highestDailySales+2);
   const chartTicks=chartMax<=10?Array.from({length:chartMax+1},(_,index)=>chartMax-index):[chartMax,Math.ceil(chartMax*.75),Math.ceil(chartMax*.5),Math.ceil(chartMax*.25),0];
   const paymentStatusLabels:any={PENDING:'Pendiente',PARTIAL:'Parcial',PAID:'Pagado',CONFIRMED:'Confirmado',CANCELLED:'Cancelado'};
+  const normalizeSearch=(value:unknown)=>String(value||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
+  const filteredOrders=useMemo(()=>{
+    const query=normalizeSearch(salesSearch).trim();
+    return manualOrders.filter((order:any)=>{
+      if(channelFilter&&order.salesChannel!==channelFilter)return false;
+      if(paymentFilter&&order.paymentStatus!==paymentFilter)return false;
+      if(!query)return true;
+      const searchable=[
+        order.customerName,
+        order.customerPhone,
+        order.paymentReference,
+        order.id,
+        order.salesChannel,
+        order.salesChannelLabel,
+        order.paymentStatus,
+        paymentStatusLabels[order.paymentStatus],
+        order.itemSummary,
+      ].map(normalizeSearch).join(' ');
+      return searchable.includes(query);
+    });
+  },[manualOrders,salesSearch,channelFilter,paymentFilter]);
   const refreshSales=()=>{qc.invalidateQueries({queryKey:['admin-sales-dashboard']});qc.invalidateQueries({queryKey:['admin-products-for-sale']});};
   const productImage=(product:any)=>product?.images?.[0]?.url||product?.mainImage||product?.imageUrl||'';
   return <div className="space-y-6">
@@ -795,6 +843,41 @@ function SalesTab(){
         <input type="month" className="input-dark min-w-[180px]" value={month} onChange={e=>setMonth(e.target.value||today.slice(0,7))}/>
       </Field>
     </Toolbar>
+    <CollapsiblePanel title="Ventas registradas" action={<span className="rounded-full bg-white/10 px-4 py-2 text-sm">{filteredOrders.length} de {manualOrders.length}</span>}>
+      <div className="mb-5 grid gap-3 lg:grid-cols-[1fr_220px_220px]">
+        <div className="admin-search flex min-h-[46px] items-center gap-2 rounded-2xl px-4">
+          <Search size={17}/>
+          <input value={salesSearch} onChange={e=>setSalesSearch(e.target.value)} placeholder="Buscar cliente, telefono, comprobante, producto o ID..." className="w-full bg-transparent text-sm outline-none"/>
+        </div>
+        <Field label="Tipo de venta">
+          <AdminSelect value={channelFilter} onChange={setChannelFilter} options={[{value:'',label:'Todos los tipos'},...saleChannels.map(option=>({value:option.value,label:option.label}))]}/>
+        </Field>
+        <Field label="Estado de pago">
+          <AdminSelect value={paymentFilter} onChange={setPaymentFilter} options={[{value:'',label:'Todos los estados'},...['PENDING','PARTIAL','PAID'].map(status=>({value:status,label:paymentStatusLabels[status]}))]}/>
+        </Field>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[980px] border-separate border-spacing-y-2 text-left text-sm">
+          <thead className="text-xs uppercase tracking-[.12em] text-white/40">
+            <tr><th className="px-3 py-2">Fecha</th><th className="px-3 py-2">Cliente</th><th className="px-3 py-2">Telefono</th><th className="px-3 py-2">Productos</th><th className="px-3 py-2">Tipo</th><th className="px-3 py-2">Pago</th><th className="px-3 py-2 text-right">Pagado</th><th className="px-3 py-2 text-right">Pendiente</th><th className="px-3 py-2 text-right">Total</th></tr>
+          </thead>
+          <tbody>
+            {filteredOrders.map((order:any)=><tr key={order.id} className="rounded-2xl bg-black/30">
+              <td className="rounded-l-2xl px-3 py-3 text-white/55">{new Date(order.createdAt).toLocaleDateString('es-DO')}</td>
+              <td className="px-3 py-3"><b>{order.customerName||order.user?.name||'Venta manual'}</b><p className="text-xs text-white/35">{order.paymentReference||order.id.slice(0,8)}</p></td>
+              <td className="px-3 py-3 text-white/60">{order.customerPhone||'No registrado'}</td>
+              <td className="max-w-[280px] px-3 py-3 text-white/65">{order.itemSummary||`${order.items?.length||0} productos`}</td>
+              <td className="px-3 py-3"><span className="rounded-full bg-white/10 px-3 py-1 text-xs">{order.salesChannelLabel||order.salesChannel}</span></td>
+              <td className="px-3 py-3"><span className={`rounded-full px-3 py-1 text-xs font-bold ${order.paymentStatus==='PAID'||order.paymentStatus==='CONFIRMED'?'bg-emerald-500/15 text-emerald-100':order.paymentStatus==='PARTIAL'?'bg-yellow-500/15 text-yellow-100':'bg-orange-500/15 text-orange-100'}`}>{paymentStatusLabels[order.paymentStatus]||order.paymentStatus}</span></td>
+              <td className="px-3 py-3 text-right">{money(order.paidAmount||0,order.currency==='USD'?'US$':'RD$')}</td>
+              <td className="px-3 py-3 text-right">{money(order.balance||0,order.currency==='USD'?'US$':'RD$')}</td>
+              <td className="rounded-r-2xl px-3 py-3 text-right font-black">{money(order.total||0,order.currency==='USD'?'US$':'RD$')}</td>
+            </tr>)}
+          </tbody>
+        </table>
+        {!filteredOrders.length&&<Empty text={manualOrders.length?'No encontramos ventas con esos filtros.':'No hay ventas registradas en este mes.'}/>}
+      </div>
+    </CollapsiblePanel>
     <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
       <Stat title="Ventas registradas" value={summary.orders||0} detail="Solo ventas manuales"/>
       <Stat title="Cobrado" value={money(summary.paid||0)} detail={`${paymentCounts.PAID||0} pagadas completo`}/>
@@ -803,7 +886,7 @@ function SalesTab(){
     </div>
     <ManualSaleForm products={products} onSaved={refreshSales}/>
     <div className="grid gap-6 xl:grid-cols-[1.05fr_.95fr]">
-      <Panel title="Grafico de ventas del mes" action={<span className="rounded-full border border-white/10 bg-black/30 px-4 py-2 text-sm text-white/60">{isLoading?'Cargando...':`${manualOrders.length} ventas`}</span>}>
+      <CollapsiblePanel title="Grafico de ventas del mes" action={<span className="rounded-full border border-white/10 bg-black/30 px-4 py-2 text-sm text-white/60">{isLoading?'Cargando...':`${manualOrders.length} ventas`}</span>}>
         <div className="rounded-[1.35rem] border border-white/10 bg-black/25 p-4">
           <div className="grid grid-cols-[58px_1fr] gap-3">
             <div className="relative h-72 text-right text-[11px] text-white/35">
@@ -846,39 +929,17 @@ function SalesTab(){
           <div className="flex flex-wrap gap-3"><span className="inline-flex items-center gap-2"><i className="h-3 w-6 rounded-full bg-emerald-400"/>Cobrado</span><span className="inline-flex items-center gap-2"><i className="h-3 w-6 rounded-full bg-orange-500"/>Pendiente</span></div>
           <span>La altura mide cantidad de ventas; el color separa cobrado y pendiente.</span>
         </div>
-      </Panel>
-      <Panel title="Estado de pagos">
+      </CollapsiblePanel>
+      <CollapsiblePanel title="Estado de pagos">
         <div className="grid gap-3 sm:grid-cols-3">
           {['PENDING','PARTIAL','PAID'].map(status=><div key={status} className="rounded-2xl border border-white/10 bg-black/30 p-4"><p className="text-xs uppercase tracking-[.12em] text-white/40">{paymentStatusLabels[status]}</p><b className="mt-2 block text-2xl">{paymentCounts[status]||0}</b></div>)}
         </div>
         <div className="mt-4 rounded-2xl border border-orange-400/20 bg-orange-500/10 p-4 text-sm text-orange-50">
           <b>Regla segura:</b> las ventas pendientes o parciales quedan registradas, pero el inventario solo se descuenta cuando confirmas la venta.
         </div>
-      </Panel>
+      </CollapsiblePanel>
     </div>
-    <Panel title="Ventas registradas" action={<span className="rounded-full bg-white/10 px-4 py-2 text-sm">{month}</span>}>
-      <div className="overflow-x-auto">
-        <table className="w-full min-w-[860px] border-separate border-spacing-y-2 text-left text-sm">
-          <thead className="text-xs uppercase tracking-[.12em] text-white/40">
-            <tr><th className="px-3 py-2">Fecha</th><th className="px-3 py-2">Cliente</th><th className="px-3 py-2">Productos</th><th className="px-3 py-2">Tipo</th><th className="px-3 py-2">Pago</th><th className="px-3 py-2 text-right">Pagado</th><th className="px-3 py-2 text-right">Pendiente</th><th className="px-3 py-2 text-right">Total</th></tr>
-          </thead>
-          <tbody>
-            {manualOrders.map((order:any)=><tr key={order.id} className="rounded-2xl bg-black/30">
-              <td className="rounded-l-2xl px-3 py-3 text-white/55">{new Date(order.createdAt).toLocaleDateString('es-DO')}</td>
-              <td className="px-3 py-3"><b>{order.customerName||order.user?.name||'Venta manual'}</b><p className="text-xs text-white/35">{order.paymentReference||order.id.slice(0,8)}</p></td>
-              <td className="max-w-[280px] px-3 py-3 text-white/65">{order.itemSummary||`${order.items?.length||0} productos`}</td>
-              <td className="px-3 py-3"><span className="rounded-full bg-white/10 px-3 py-1 text-xs">{order.salesChannelLabel||order.salesChannel}</span></td>
-              <td className="px-3 py-3"><span className={`rounded-full px-3 py-1 text-xs font-bold ${order.paymentStatus==='PAID'||order.paymentStatus==='CONFIRMED'?'bg-emerald-500/15 text-emerald-100':order.paymentStatus==='PARTIAL'?'bg-yellow-500/15 text-yellow-100':'bg-orange-500/15 text-orange-100'}`}>{paymentStatusLabels[order.paymentStatus]||order.paymentStatus}</span></td>
-              <td className="px-3 py-3 text-right">{money(order.paidAmount||0,order.currency==='USD'?'US$':'RD$')}</td>
-              <td className="px-3 py-3 text-right">{money(order.balance||0,order.currency==='USD'?'US$':'RD$')}</td>
-              <td className="rounded-r-2xl px-3 py-3 text-right font-black">{money(order.total||0,order.currency==='USD'?'US$':'RD$')}</td>
-            </tr>)}
-          </tbody>
-        </table>
-        {!manualOrders.length&&<Empty text="No hay ventas registradas en este mes."/>}
-      </div>
-    </Panel>
-    <Panel title="Inventario rapido">
+    <CollapsiblePanel title="Inventario rapido">
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
         {products.slice(0,12).map((product:any)=><div key={product.id} className="flex items-center gap-3 rounded-2xl border border-white/10 bg-black/25 p-3">
           {productImage(product)&&<img src={productImage(product)} alt={product.name} className="h-14 w-14 rounded-xl object-cover"/>}
@@ -890,7 +951,7 @@ function SalesTab(){
         </div>)}
         {!products.length&&<Empty text="No hay productos cargados para vender."/>}
       </div>
-    </Panel>
+    </CollapsiblePanel>
   </div>;
 }
 

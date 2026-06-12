@@ -112,7 +112,10 @@ export default function SiteGate({ children }: { children: React.ReactNode }) {
             </motion.span>
           </div>
           <div className="magma-intro-progress"><span /></div>
-          <p>Encendiendo la experiencia</p>
+          <div className="magma-intro-status">
+            <span className="magma-intro-spinner" aria-hidden="true"><i /></span>
+            <p>Cargando Magma Blaze</p>
+          </div>
         </motion.div>
         <span className="magma-intro-corner magma-intro-corner-tl" />
         <span className="magma-intro-corner magma-intro-corner-br" />

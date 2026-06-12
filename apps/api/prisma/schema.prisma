@@ -232,6 +232,7 @@ model Order {
   paymentStatus  String   @default("PENDING")
   paymentProvider String?
   paymentReference String?
+  customerPhone  String?
   awaitingCustomerApproval Boolean @default(false)
   customerDecisionAt DateTime?
   addressLine    String
@@ -254,6 +255,7 @@ model Order {
   @@index([createdAt])
   @@index([status])
   @@index([salesChannel])
+  @@index([customerPhone])
 }
 
 model OrderEvent {
