@@ -12,7 +12,7 @@ build/
 
 # Env files
 .env
-.env.local
+.env.local 
 .env.production
 apps/*/.env.production
 .env.*.local
