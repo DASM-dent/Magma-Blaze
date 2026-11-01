@@ -68,7 +68,7 @@ export function CategoryGrid() {
   const { data: categories = [] } = useQuery({ queryKey: ["public-categories"], queryFn: () => api<any[]>("/categories") });
   if (site?.publicSettings?.showCategories === false || !categories.length) return null;
   return (
-    <section className="py-24 px-4 md:px-6">
+    <section className="py-14 px-4 md:py-16 md:px-6">
       <div className="max-w-7xl mx-auto">
         <ScrollReveal>
           <p className="font-heading text-xs uppercase tracking-[0.3em] text-ember-DEFAULT mb-2">{t("home.explore")}</p>
@@ -146,7 +146,7 @@ export function Footer() {
       <div className="max-w-7xl mx-auto">
         <div className="grid grid-cols-1 md:grid-cols-4 gap-10 mb-12">
           <div className="md:col-span-2">
-            <div className="soft-title text-3xl tracking-[0.2em] text-white mb-4">MAGMA BLAZE</div>
+            <Link href="/" aria-label="Magma Blaze, inicio" className="mb-4 inline-flex items-center gap-3"><img src="/images/magmablaze-mascota-circular-estatico.svg" alt="" aria-hidden="true" className="h-12 w-12 rounded-full" /><span className="soft-title text-2xl tracking-[0.16em] text-white">MAGMA <span className="text-orange-400">BLAZE</span></span></Link>
             <p className="text-white/30 text-sm leading-relaxed max-w-xs">{t("footer.copy")}</p>
             <div className="flex gap-4 mt-6"><a href="https://instagram.com/magmablazelv" target="_blank" rel="noopener noreferrer" aria-label="Instagram Magma Blaze" className="text-white/30 hover:text-white"><Instagram className="w-5 h-5" /></a><a href={whatsappUrl} target="_blank" rel="noopener noreferrer" aria-label="WhatsApp Magma Blaze" className="text-white/30 hover:text-white"><MessageCircle className="w-5 h-5" /></a></div>
           </div>

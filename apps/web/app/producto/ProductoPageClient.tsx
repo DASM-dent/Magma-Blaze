@@ -7,6 +7,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { productApi } from '@/services/api';
 import { useStoreLocale } from '@/context/LocaleContext';
 import ProductCard from '@/components/product/ProductCard';
+import ReviewSection from '@/components/ReviewSection';
 import { readRecentlyViewedSlugs, rememberRecentlyViewedProduct } from '@/lib/recentlyViewed';
 import AddToCartButton from './AddToCartButton';
 
@@ -190,6 +191,7 @@ export default function ProductoPageClient() {
 
       <ProductRail title={t('product.relatedTitle')} subtitle={t('product.relatedSubtitle')} products={relatedProducts} />
       <ProductRail title={t('product.recentTitle')} subtitle={t('product.recentSubtitle')} products={recentProducts} offset={4} />
+      <ReviewSection product={{ slug: product.slug, name: product.name }} />
     </div>
   );
 }

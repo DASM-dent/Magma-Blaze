@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import { Check, ChevronDown, Globe2, Search, ShoppingBag, User, X, Menu } from "lucide-react";
 import { useCart } from "@/context/CartContext";
@@ -13,11 +14,13 @@ import { useStoreLocale } from "@/context/LocaleContext";
 import { usePublicSettings } from "@/hooks/usePublicSettings";
 
 export default function Navbar() {
-  const { itemCount, openCart } = useCart();
+  const pathname = usePathname();
+  const { openCart, itemCount } = useCart();
   const { user } = useAuth();
   const { country, currency, symbol, setCountry, setCurrency, t } = useStoreLocale();
   const { settings, isError: settingsError } = usePublicSettings();
   const [scrolled, setScrolled] = useState(false);
+
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<unknown[]>([]);
   const [searching, setSearching] = useState(false);
@@ -27,13 +30,84 @@ export default function Navbar() {
   const searchRef = useRef<HTMLInputElement>(null);
   const localeRef = useRef<HTMLDivElement>(null);
   const headerRef = useRef<HTMLElement>(null);
+  const mascotFlightRef = useRef<HTMLDivElement>(null);
   const debounce = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
-    const onScroll = () => setScrolled(window.scrollY > 40);
-    window.addEventListener("scroll", onScroll, { passive: true });
-    return () => window.removeEventListener("scroll", onScroll);
-  }, []);
+    const flight = mascotFlightRef.current;
+    if (!flight) return;
+
+    const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    let source: HTMLPictureElement | null = null;
+    let sourceLeft = 0;
+    let sourceDocumentTop = 0;
+    let sourceWidth = 0;
+    let sourceHeight = 0;
+    let targetLeft = 0;
+    let targetTop = 0;
+    let targetWidth = 0;
+    let targetHeight = 0;
+
+    const hideFlight = () => {
+      flight.style.opacity = "0";
+      if (source) source.style.opacity = "";
+    };
+    const updateFlight = () => {
+      const scrollY = window.scrollY;
+      setScrolled(scrollY > 40);
+      if (pathname !== "/" || reducedMotion || !source || !targetWidth || !targetHeight) {
+        hideFlight();
+        return;
+      }
+
+      const progress = Math.max(0, Math.min(1, scrollY / 420));
+      const naturalTop = sourceDocumentTop - scrollY;
+      const left = sourceLeft + (targetLeft - sourceLeft) * progress;
+      const top = naturalTop + (targetTop - naturalTop) * progress;
+      const width = sourceWidth + (targetWidth - sourceWidth) * progress;
+      const height = sourceHeight + (targetHeight - sourceHeight) * progress;
+      const opacity = progress < 0.08 ? progress / 0.08 : progress > 0.92 ? (1 - progress) / 0.08 : 1;
+
+      flight.style.left = left + "px";
+      flight.style.top = top + "px";
+      flight.style.width = width + "px";
+      flight.style.height = height + "px";
+      flight.style.opacity = String(Math.max(0, Math.min(1, opacity)));
+      flight.style.transform = "rotate(" + (Math.sin(progress * Math.PI) * 10).toFixed(1) + "deg)";
+      source.style.opacity = String(1 - Math.min(1, progress * 5));
+    };
+    const measureFlight = () => {
+      source = document.querySelector<HTMLPictureElement>(".hero-mascot-source");
+      const menuTarget = document.querySelector<HTMLElement>(".navbar-menu-toggle");
+      const visibleMenuTarget = menuTarget && menuTarget.getClientRects().length ? menuTarget : null;
+      const target = visibleMenuTarget || document.querySelector<HTMLElement>(".navbar-brand-mark");
+      if (!source || !target) {
+        hideFlight();
+        return;
+      }
+      const sourceRect = source.getBoundingClientRect();
+      const targetRect = target.getBoundingClientRect();
+      sourceLeft = sourceRect.left;
+      sourceDocumentTop = sourceRect.top + window.scrollY;
+      sourceWidth = sourceRect.width;
+      sourceHeight = sourceRect.height;
+      targetLeft = targetRect.left;
+      targetTop = targetRect.top;
+      targetWidth = targetRect.width;
+      targetHeight = targetRect.height;
+      updateFlight();
+    };
+
+    measureFlight();
+    window.addEventListener("scroll", updateFlight, { passive: true });
+    window.addEventListener("resize", measureFlight);
+    return () => {
+      window.removeEventListener("scroll", updateFlight);
+      window.removeEventListener("resize", measureFlight);
+      if (source) source.style.opacity = "";
+      flight.style.opacity = "0";
+    };
+  }, [pathname]);
 
   useEffect(() => {
     if (!query || query.length < 2) { setResults([]); return; }
@@ -88,12 +162,10 @@ export default function Navbar() {
         <div className="max-w-7xl mx-auto px-4 md:px-6 h-16 flex items-center justify-between gap-4">
 
           {/* Logo */}
-          <Link href="/" className="flex-shrink-0">
-            <span
-              className="font-display text-2xl md:text-3xl tracking-[0.15em] text-white"
-              style={{ textShadow: scrolled ? "none" : "0 0 30px rgba(255,69,0,0.4)" }}
-            >
-              MAGMA BLAZE
+          <Link href="/" aria-label="Magma Blaze, inicio" className="flex flex-shrink-0 items-center gap-2.5">
+            <img src="/images/magmablaze-mascota-circular-estatico.svg" alt="" aria-hidden="true" className="navbar-brand-mark h-10 w-10 rounded-full drop-shadow-[0_0_16px_rgba(255,91,35,0.34)]" />
+            <span className="font-display whitespace-nowrap text-sm font-black tracking-[0.12em] text-white sm:text-base" style={{ textShadow: scrolled ? "none" : "0 0 30px rgba(255,69,0,0.4)" }}>
+              MAGMA <span className="text-orange-400">BLAZE</span>
             </span>
           </Link>
 
@@ -219,7 +291,7 @@ export default function Navbar() {
             {/* Mobile menu */}
             <button
               onClick={() => setMenuOpen((p) => !p)}
-              className="md:hidden p-2 text-white/60 hover:text-white transition-colors"
+              className="navbar-menu-toggle md:hidden p-2 text-white/60 hover:text-white transition-colors"
             >
               {menuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
             </button>
@@ -296,6 +368,9 @@ export default function Navbar() {
       </AnimatePresence>
 
       <CartDrawer />
+      <div ref={mascotFlightRef} className="hero-mascot-flight" aria-hidden="true">
+        <img src="/images/magmablaze-mascota-circular-animado.svg" alt="" />
+      </div>
     </>
   );
 }

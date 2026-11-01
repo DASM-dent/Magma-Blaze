@@ -117,6 +117,7 @@ model Product {
   category    Category        @relation(fields: [categoryId], references: [id])
   images      ProductImage[]
   variants    ProductVariant[]
+  reviews Review[]
   orderItems  OrderItem[]
   wishlists   WishlistItem[]
   modelPhotos ModelPhoto[]
@@ -129,6 +130,23 @@ model Product {
   @@index([discountEndsAt])
 }
 
+model Review {
+  id          String   @id @default(cuid())
+  kind        String   @default("SITE")
+  name        String
+  email       String?
+  rating      Int
+  comment     String
+  status      String   @default("PENDING")
+  productId   String?
+  product     Product? @relation(fields: [productId], references: [id], onDelete: SetNull)
+  productName String?
+  createdAt   DateTime @default(now())
+  publishedAt DateTime?
+
+  @@index([status, createdAt])
+  @@index([productId, status])
+}
 model ProductVariant {
   id        String   @id @default(cuid())
   productId String

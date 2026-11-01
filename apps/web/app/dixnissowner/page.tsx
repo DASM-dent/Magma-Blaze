@@ -6,13 +6,14 @@ import { toast } from 'sonner';
 import { API_URL, api } from '@/lib/api';
 import { useAuth } from '@/context/AuthContext';
 import { ModelProductTag } from '@/components/ModelProductTag';
-import { Activity, AlertTriangle, Bell, Boxes, CalendarDays, Check, CheckCircle2, ChevronDown, Eye, FileText, Flame, Inbox, LayoutDashboard, LifeBuoy, Lock, LogOut, Moon, PieChart, Plus, RotateCcw, Search, Server, Settings, ShieldCheck, ShoppingBag, Sun, Tag, Trash2, Truck, Users, Wallet, XCircle } from 'lucide-react';
+import ReviewsTab from './ReviewsTab';
+import { Activity, AlertTriangle, Bell, Boxes, CalendarDays, Check, CheckCircle2, ChevronDown, Eye, FileText, Flame, Inbox, LayoutDashboard, LifeBuoy, Lock, LogOut, Moon, PieChart, Plus, RotateCcw, Search, Server, Settings, ShieldCheck, ShoppingBag, Star, Sun, Tag, Trash2, Truck, Users, Wallet, XCircle } from 'lucide-react';
 import { DOMINICAN_PROVINCES, US_STATES, municipalitiesFor } from '@/lib/locations';
 
-type Tab='overview'|'products'|'categories'|'orders'|'drops'|'models'|'content'|'popups'|'shipping'|'users'|'finance'|'reports'|'sales'|'notifications'|'coupons'|'inventory'|'settings'|'security'|'support'|'roles';
+type Tab='overview'|'products'|'categories'|'orders'|'drops'|'models'|'content'|'popups'|'shipping'|'users'|'finance'|'reports'|'sales'|'notifications'|'reviews'|'coupons'|'inventory'|'settings'|'security'|'support'|'roles';
 const tabs:{key:Tab;label:string;icon:ReactNode;permission:string}[]=[
   {key:'overview',label:'Dashboard',icon:<LayoutDashboard size={17}/>,permission:'dashboard'},{key:'products',label:'Productos',icon:<Boxes size={17}/>,permission:'products'},{key:'categories',label:'Categorías',icon:<Tag size={17}/>,permission:'categories'},{key:'orders',label:'Pedidos',icon:<ShoppingBag size={17}/>,permission:'orders'},{key:'sales',label:'Ventas',icon:<Wallet size={17}/>,permission:'sales'},{key:'drops',label:'Drops',icon:<Flame size={17}/>,permission:'drops'},{key:'models',label:'Modelos',icon:<Activity size={17}/>,permission:'models'},{key:'content',label:'Contenido',icon:<FileText size={17}/>,permission:'content'},{key:'shipping',label:'Envíos',icon:<Truck size={17}/>,permission:'shipping'},{key:'users',label:'Usuarios',icon:<Users size={17}/>,permission:'users'},{key:'finance',label:'Costos y margen',icon:<Wallet size={17}/>,permission:'finance'},{key:'reports',label:'Reportes',icon:<PieChart size={17}/>,permission:'reports'},{key:'coupons',label:'Cupones',icon:<Tag size={17}/>,permission:'coupons'},{key:'inventory',label:'Inventario',icon:<Boxes size={17}/>,permission:'inventory'},{key:'settings',label:'Control sitio',icon:<Settings size={17}/>,permission:'settings'},{key:'support',label:'Ayuda',icon:<LifeBuoy size={17}/>,permission:'support'},{key:'roles',label:'Roles',icon:<ShieldCheck size={17}/>,permission:'roles'},{key:'security',label:'Seguridad',icon:<Lock size={17}/>,permission:'security'}
-  ,{key:'notifications',label:'Notificaciones',icon:<Bell size={17}/>,permission:'notifications'}
+  ,{key:'reviews',label:'Reseñas',icon:<Star size={17}/>,permission:'reviews'},{key:'notifications',label:'Notificaciones',icon:<Bell size={17}/>,permission:'notifications'}
 ];
 const popupTabIndex=tabs.findIndex(tab=>tab.key==='content');
 if(popupTabIndex>=0&&!tabs.some(tab=>tab.key==='popups'))tabs.splice(popupTabIndex+1,0,{key:'popups',label:'Novedades popup',icon:<Bell size={17}/>,permission:'content'});
@@ -99,13 +100,14 @@ async function exportModelCrop(src:string,settings:ModelCropSettings){
 const slugify=(v:string)=>v.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]+/g,'-').replace(/(^-|-$)+/g,'');
 
 const notificationTypeLabels:any={ORDER:'Pedidos',SUPPORT:'Ayuda',SALES:'Ventas',INVENTORY:'Inventario',SYSTEM:'Sistema'};
-const notificationSectionLabels:any={orders:'Pedidos',products:'Productos',support:'Ayuda',sales:'Ventas',inventory:'Inventario',users:'Usuarios',shipping:'Envios',notifications:'Sistema'};
+const notificationSectionLabels:any={orders:'Pedidos',products:'Productos',support:'Ayuda',sales:'Ventas',inventory:'Inventario',users:'Usuarios',shipping:'Envios',reviews:'Reseñas',notifications:'Sistema'};
 const notificationSummaryDefault={total:0,read:0,byType:{},byPriority:{},bySection:{}} as any;
 const notificationPriorityLabels:any={LOW:'Baja',NORMAL:'Normal',HIGH:'Alta',CRITICAL:'Crítica'};
 const notificationPriorityClass:any={LOW:'is-low',NORMAL:'is-normal',HIGH:'is-high',CRITICAL:'is-critical'};
 function notificationTargetTab(notification:any):Tab{
   const action=String(notification?.actionUrl||'').toLowerCase();
   const type=String(notification?.type||'SYSTEM').toUpperCase();
+  if(action.includes('review'))return 'reviews';
   if(action.includes('product'))return 'products';
   if(action.includes('inventory'))return 'inventory';
   if(action.includes('order')||type==='ORDER')return 'orders';
@@ -249,7 +251,7 @@ function Shell({children,tab,setTab}:{children:ReactNode;tab:Tab;setTab:(t:Tab)=
   const [theme,setTheme]=useState<'dark'|'light'>('dark');
   useEffect(()=>{const saved=typeof window!=='undefined'?window.localStorage.getItem('mb-admin-theme'):null;if(saved==='light'||saved==='dark')setTheme(saved);},[]);
   useEffect(()=>{if(typeof window!=='undefined')window.localStorage.setItem('mb-admin-theme',theme);},[theme]);
-  const visible=tabs.filter(t=>user?.role==='ADMIN'||user?.permissions?.includes(t.permission));
+  const visible=tabs.filter(t=>t.key==='reviews'?user?.role==='ADMIN':user?.role==='ADMIN'||user?.permissions?.includes(t.permission));
   const {data:summary=notificationSummaryDefault}=useQuery({queryKey:['admin-notifications-summary'],queryFn:()=>api<any>('/admin/notifications/summary'),enabled:Boolean(user&&visible.length),refetchInterval:30000});
   const countForTab=(item:any)=>item.key==='notifications'?(summary.total||0):(summary.bySection?.[item.permission]||0);
   return <div className={'admin-shell admin-'+theme}>
@@ -1764,7 +1766,7 @@ function ModelsTabV2(){
 export default function Admin(){
   const [tab,setTab]=useState<Tab>('overview');
   const {user,logout}=useAuth();
-  const visibleTabs=useMemo(()=>tabs.filter(t=>user?.role==='ADMIN'||user?.permissions?.includes(t.permission)),[user]);
+  const visibleTabs=useMemo(()=>tabs.filter(t=>t.key==='reviews'?user?.role==='ADMIN':user?.role==='ADMIN'||user?.permissions?.includes(t.permission)),[user]);
   const canDashboard=Boolean(user&&(user.role==='ADMIN'||user.permissions?.includes('dashboard')));
   const {data,isLoading,error}=useQuery({queryKey:['admin-dashboard'],queryFn:()=>api<any>('/admin/dashboard'),retry:false,enabled:canDashboard});
   const dashboardError=error?adminDashboardError(error):null;
@@ -1799,6 +1801,7 @@ export default function Admin(){
     {tab==='reports'&&<SalesDashboardTabV2/>}
     {tab==='sales'&&<SalesTab/>}
     {tab==='notifications'&&<NotificationsTab/>}
+    {tab==='reviews'&&<ReviewsTab/>}
     {tab==='coupons'&&<CouponsTab/>}
     {tab==='inventory'&&<InventoryTab/>}
     {tab==='settings'&&(data?<SettingsTab data={data}/>:<Empty text="Necesitas permiso de dashboard para cargar el control del sitio."/> )}

@@ -2,18 +2,23 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { prisma } from '../prisma.js';
 import { requireAuth, requireAdmin } from '../middleware/auth.js';
+import { activateExpiredNewProducts, getEffectiveProductStatus, isNewProductWindowOpen, NEW_PRODUCT_WINDOW_MS } from '../productStatus.js';
 const router = Router();
+router.use(async (_req, _res, next) => {
+  try {
+    await activateExpiredNewProducts();
+  } catch (error) {
+    console.error('[PRODUCT_STATUS_SYNC_ERROR]', error);
+  }
+  next();
+});
 
 const USD_EXCHANGE_RATE = 48;
-const NEW_PRODUCT_DAYS = 30;
+
 const roundMoney = (v: number) => Math.round((Number(v || 0) + Number.EPSILON) * 100) / 100;
 const rdToUsd = (priceRd: number) => roundMoney(priceRd / USD_EXCHANGE_RATE);
 const DISCOUNT_TYPES = ['NONE', 'PERCENT', 'FIXED_AMOUNT', 'FIXED_PRICE'] as const;
-function isRecentProduct(createdAt: unknown, now = Date.now()) {
-  const created = new Date(String(createdAt || '')).getTime();
-  if (!Number.isFinite(created)) return false;
-  return now - created <= NEW_PRODUCT_DAYS * 24 * 60 * 60 * 1000;
-}
+
 
 function activeDiscount(p: any, now = new Date()) {
   const type = DISCOUNT_TYPES.includes(p.discountType) ? p.discountType : 'NONE';
@@ -97,7 +102,8 @@ function toUiProduct(p: any) {
   const discount = activeDiscount(p);
   const finalPrice = discount ? discount.finalCents / 100 : basePrice;
   const finalPriceUsd = discount ? rdToUsd(finalPrice) : basePriceUsd;
-  const recent = isRecentProduct(p.createdAt);
+  const recent = isNewProductWindowOpen(p.createdAt);
+  const status = getEffectiveProductStatus(p.status, p.createdAt);
   return {
     ...p,
     basePrice,
@@ -122,11 +128,11 @@ function toUiProduct(p: any) {
     totalVariantStock: Array.isArray(p.variants) ? p.variants.filter((variant:any)=>variant.active).reduce((sum:number,variant:any)=>sum+Number(variant.stock||0),0) : 0,
     availableStock: Array.isArray(p.variants)&&p.variants.some((variant:any)=>variant.active) ? p.variants.filter((variant:any)=>variant.active).reduce((sum:number,variant:any)=>sum+Number(variant.stock||0),0) : p.stock,
     variantCount: Array.isArray(p.variants) ? p.variants.filter((variant:any)=>variant.active).length : 0,
-    isNew: p.status === 'NEW' || recent,
-    isBestSeller: p.status === 'BESTSELLER',
-    isLimitedDrop: p.status === 'LIMITED_DROP',
-    isOutOfStock: (Array.isArray(p.variants)&&p.variants.some((variant:any)=>variant.active) ? p.variants.filter((variant:any)=>variant.active).reduce((sum:number,variant:any)=>sum+Number(variant.stock||0),0) : p.stock) <= 0 || p.status === 'SOLD_OUT',
-    status: p.status === 'UPCOMING' ? 'COMING_SOON' : p.status,
+    isNew: status === 'NEW' || recent,
+    isBestSeller: status === 'BESTSELLER',
+    isLimitedDrop: status === 'LIMITED_DROP',
+    isOutOfStock: (Array.isArray(p.variants)&&p.variants.some((variant:any)=>variant.active) ? p.variants.filter((variant:any)=>variant.active).reduce((sum:number,variant:any)=>sum+Number(variant.stock||0),0) : p.stock) <= 0 || status === 'SOLD_OUT',
+    status: status === 'UPCOMING' ? 'COMING_SOON' : status,
   };
 }
 
@@ -152,7 +158,7 @@ router.get('/', async (req, res) => {
   const limit = Math.min(Number(req.query.limit || 12), 50);
   const page = Math.max(Number(req.query.pagina || req.query.page || 1), 1);
   const sortBy = String(req.query.orden || req.query.sortBy || 'newest');
-  const recentSince = new Date(Date.now() - NEW_PRODUCT_DAYS * 24 * 60 * 60 * 1000);
+  const recentSince = new Date(Date.now() - NEW_PRODUCT_WINDOW_MS);
 
   const where: any = { AND: [] };
   if (search) where.AND.push({ OR: [{ name: { contains: search } }, { description: { contains: search } }] });

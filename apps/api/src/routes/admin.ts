@@ -5,9 +5,18 @@ import { prisma } from '../prisma.js';
 import { requireAuth, requireStaff } from '../middleware/auth.js';
 import { sendMail } from '../email.js';
 import { emailTemplates } from '../emailTemplates.js';
+import { activateExpiredNewProducts, getEffectiveProductStatus } from '../productStatus.js';
 
 const router = Router();
 router.use(requireAuth, requireStaff);
+router.use(async (_req, _res, next) => {
+  try {
+    await activateExpiredNewProducts();
+  } catch (error) {
+    console.error('[PRODUCT_STATUS_SYNC_ERROR]', error);
+  }
+  next();
+});
 
 const USD_EXCHANGE_RATE = 48;
 const roundMoney = (v:number)=>Math.round((Number(v || 0) + Number.EPSILON) * 100) / 100;
@@ -165,7 +174,8 @@ function toProduct(p:any){
   const totalVariantStock=activeVariants.reduce((sum:number,variant:any)=>sum+Number(variant.stock||0),0);
   const hasVariants=activeVariants.length>0;
   const availableStock=hasVariants?totalVariantStock:Number(p.stock||0);
-  return {...p, imageUrl:mainImage, images, variants, totalVariantStock, availableStock, variantCount:activeVariants.length, price, priceUsd, cost, profit:salePrice-cost, margin: salePrice? Number((((salePrice-cost)/salePrice)*100).toFixed(1)):0, salePrice, salePriceUsd, comparePrice:active?price:null, comparePriceUsd:active?priceUsd:null, discountValue:p.discountType==='PERCENT'?Number(p.discountValue||0):centsToUnit(p.discountValue), discount:{active:Boolean(active),type:p.discountType||'NONE',label:p.discountLabel||null,percent:active?.percent||0,amount:active?centsToUnit(active.savedCents):0,startsAt:p.discountStartsAt,endsAt:p.discountEndsAt}, mainImage, categoryName:p.category?.name??'Sin categoria', isOutOfStock:availableStock<=0||p.status==='SOLD_OUT', isNew:p.status==='NEW', isBestSeller:p.status==='BESTSELLER', isLimitedDrop:p.status==='LIMITED_DROP'};
+  const status=getEffectiveProductStatus(p.status,p.createdAt);
+  return {...p, status, imageUrl:mainImage, images, variants, totalVariantStock, availableStock, variantCount:activeVariants.length, price, priceUsd, cost, profit:salePrice-cost, margin: salePrice? Number((((salePrice-cost)/salePrice)*100).toFixed(1)):0, salePrice, salePriceUsd, comparePrice:active?price:null, comparePriceUsd:active?priceUsd:null, discountValue:p.discountType==='PERCENT'?Number(p.discountValue||0):centsToUnit(p.discountValue), discount:{active:Boolean(active),type:p.discountType||'NONE',label:p.discountLabel||null,percent:active?.percent||0,amount:active?centsToUnit(active.savedCents):0,startsAt:p.discountStartsAt,endsAt:p.discountEndsAt}, mainImage, categoryName:p.category?.name??'Sin categoria', isOutOfStock:availableStock<=0||status==='SOLD_OUT', isNew:status==='NEW', isBestSeller:status==='BESTSELLER', isLimitedDrop:status==='LIMITED_DROP'};
 }
 function toOrder(o:any){ return {...o, subtotal:centsToUnit(o.subtotal), discount:centsToUnit(o.discount), shipping:centsToUnit(o.shipping), total:centsToUnit(o.total), items:o.items?.map((i:any)=>({...i,price:centsToUnit(i.price)})), events:o.events?.map((event:any)=>({...event, actor:event.user ? { id:event.user.id, name:event.user.name, role:event.user.role } : null }))}; }
 function pdfSafe(value: unknown) {
@@ -864,6 +874,7 @@ const notificationCreateSchema=z.object({
 function notificationSection(notification:any){
   const action=String(notification.actionUrl||'').toLowerCase();
   const type=String(notification.type||'SYSTEM').toUpperCase();
+  if(action.includes('review'))return 'reviews';
   if(action.includes('product')||action.includes('inventory'))return action.includes('inventory')?'inventory':'products';
   if(action.includes('order')||type==='ORDER')return 'orders';
   if(action.includes('support')||action.includes('ticket')||type==='SUPPORT')return 'support';
