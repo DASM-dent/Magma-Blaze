@@ -53,4 +53,9 @@ export const contentApi = {
   shippingZones: () => api.get('/content/shipping-zones'),
 };
 
+export const reviewApi = {
+  list: (params?: { productSlug?: string; limit?: number }) => api.get('/reviews' + qs(params)),
+  submit: (payload: { kind: 'SITE' | 'PRODUCT'; name: string; email?: string; rating: number; comment: string; productSlug?: string; website?: string }) => api.post('/reviews', payload),
+};
+
 export { API_URL };

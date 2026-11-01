@@ -57,9 +57,9 @@ const translations: { es: Record<string, string> } = {
     'common.countryRD': 'Republica Dominicana',
     'common.countryUS': 'Estados Unidos',
 
-    'hero.badge': 'Con protección contra los rayos UV',
-    'hero.copy': 'Magma Blaze combina protección visual, diseño deportivo y comodidad ligera para acompañarte en cada actividad.',
-    'hero.collection': 'Ver coleccion',
+    'hero.badge': 'Piezas que cambian tu mood',
+    'hero.copy': 'No vienes solo por un accesorio: vienes por esa versión de ti que se siente lista para salir. Encuentra lentes, AirPods, gorras y detalles que encienden tu estilo.',
+    'hero.collection': 'Encuentra tu estilo',
     'hero.drops': 'Proximos drops',
     'hero.scroll': 'Scroll',
 
@@ -79,7 +79,7 @@ const translations: { es: Record<string, string> } = {
     'footer.returns': 'Devoluciones',
     'footer.privacy': 'Privacidad',
     'footer.terms': 'Términos',
-    'footer.copy': 'Lentes únicos que protegen tu vista de edicion limitada. Diseñados para quienes no siguen tendencias: las crean.',
+    'footer.copy': 'Lentes, airpods y accesorios para convertir cada salida en una experiencia con tu propio estilo.',
     'footer.shop': 'Tienda',
     'footer.support': 'Soporte',
     'footer.rights': 'Todos los derechos reservados.',

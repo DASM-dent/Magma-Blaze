@@ -2,7 +2,9 @@
 
 import { useEffect, useState } from 'react';
 import HeroSection from '@/components/layout/HeroSection';
+import ExperienceTicker from '@/components/layout/ExperienceTicker';
 import FeaturedProducts from '@/components/product/FeaturedProducts';
+import ReviewSection from '@/components/ReviewSection';
 import DropTeaser from '@/components/drop/DropTeaser';
 import CategoryGrid from '@/components/product/CategoryGrid';
 import { contentApi } from '@/services/api';
@@ -24,6 +26,7 @@ export default function HomeClient() {
   return (
     <>
       <HeroSection />
+      <ExperienceTicker />
       {homeBlocks.map((block) => (
         <section key={block.id} className="px-4 py-16 text-white md:px-6">
           <ScrollReveal className="mx-auto grid max-w-7xl gap-8 md:grid-cols-[1fr_.9fr] md:items-center">
@@ -37,6 +40,7 @@ export default function HomeClient() {
         </section>
       ))}
       {sectionIsVisible(settings?.showDrops) ? <DropTeaser /> : null}
+      <ReviewSection />
       {sectionIsVisible(settings?.showFeatured) ? <FeaturedProducts /> : null}
       {sectionIsVisible(settings?.showCategories) ? <CategoryGrid /> : null}
     </>

@@ -7,11 +7,11 @@ import AdsenseScript from '@/components/AdsenseScript';
 export const metadata: Metadata = {
   title: 'Magma Blaze',
   icons: {
-    icon: '/images/mb-tab-logo.png',
-    shortcut: '/images/mb-tab-logo.png',
+    icon: '/images/magmablaze-mascota-circular-estatico.svg',
+    shortcut: '/images/magmablaze-mascota-circular-estatico.svg',
     apple: '/images/mb-tab-logo.png',
   },
-  description: 'Mejora tu estilo con nuestros accesorios. Lentes en versiones deportivas y diferentes estilos dependiendo tu vestimenta. ¿Dejarás que otro te cuente o serás tú quien lo haga?',
+  description: 'Magma Blaze: lentes, airpods y accesorios para convertir cada salida en una experiencia con tu propio estilo. Encuentra tu próxima pieza favorita.',
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

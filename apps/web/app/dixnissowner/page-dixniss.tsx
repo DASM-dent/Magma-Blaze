@@ -1,0 +1,1809 @@
+'use client';
+
+import { ReactNode, useEffect, useMemo, useRef, useState } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { toast } from 'sonner';
+import { API_URL, api } from '@/lib/api';
+import { useAuth } from '@/context/AuthContext';
+import { ModelProductTag } from '@/components/ModelProductTag';
+import { Activity, AlertTriangle, Bell, Boxes, CalendarDays, Check, CheckCircle2, ChevronDown, Eye, FileText, Flame, Inbox, LayoutDashboard, LifeBuoy, Lock, LogOut, Moon, PieChart, Plus, RotateCcw, Search, Server, Settings, ShieldCheck, ShoppingBag, Sun, Tag, Trash2, Truck, Users, Wallet, XCircle } from 'lucide-react';
+import { DOMINICAN_PROVINCES, US_STATES, municipalitiesFor } from '@/lib/locations';
+
+type Tab='overview'|'products'|'categories'|'orders'|'drops'|'models'|'content'|'popups'|'shipping'|'users'|'finance'|'reports'|'sales'|'notifications'|'coupons'|'inventory'|'settings'|'security'|'support'|'roles';
+const tabs:{key:Tab;label:string;icon:ReactNode;permission:string}[]=[
+  {key:'overview',label:'Dashboard',icon:<LayoutDashboard size={17}/>,permission:'dashboard'},{key:'products',label:'Productos',icon:<Boxes size={17}/>,permission:'products'},{key:'categories',label:'Categorías',icon:<Tag size={17}/>,permission:'categories'},{key:'orders',label:'Pedidos',icon:<ShoppingBag size={17}/>,permission:'orders'},{key:'sales',label:'Ventas',icon:<Wallet size={17}/>,permission:'sales'},{key:'drops',label:'Drops',icon:<Flame size={17}/>,permission:'drops'},{key:'models',label:'Modelos',icon:<Activity size={17}/>,permission:'models'},{key:'content',label:'Contenido',icon:<FileText size={17}/>,permission:'content'},{key:'shipping',label:'Envíos',icon:<Truck size={17}/>,permission:'shipping'},{key:'users',label:'Usuarios',icon:<Users size={17}/>,permission:'users'},{key:'finance',label:'Costos y margen',icon:<Wallet size={17}/>,permission:'finance'},{key:'reports',label:'Reportes',icon:<PieChart size={17}/>,permission:'reports'},{key:'coupons',label:'Cupones',icon:<Tag size={17}/>,permission:'coupons'},{key:'inventory',label:'Inventario',icon:<Boxes size={17}/>,permission:'inventory'},{key:'settings',label:'Control sitio',icon:<Settings size={17}/>,permission:'settings'},{key:'support',label:'Ayuda',icon:<LifeBuoy size={17}/>,permission:'support'},{key:'roles',label:'Roles',icon:<ShieldCheck size={17}/>,permission:'roles'},{key:'security',label:'Seguridad',icon:<Lock size={17}/>,permission:'security'}
+  ,{key:'notifications',label:'Notificaciones',icon:<Bell size={17}/>,permission:'notifications'}
+];
+const popupTabIndex=tabs.findIndex(tab=>tab.key==='content');
+if(popupTabIndex>=0&&!tabs.some(tab=>tab.key==='popups'))tabs.splice(popupTabIndex+1,0,{key:'popups',label:'Novedades popup',icon:<Bell size={17}/>,permission:'content'});
+const orderStatuses=['PENDING','AWAITING_SHIPPING_CONFIRMATION','AWAITING_CUSTOMER_APPROVAL','PROCESSING','PACKED','SHIPPED','DELIVERED','CANCELLED'];
+const statusLabels:any={PENDING:'Pendiente',AWAITING_SHIPPING_CONFIRMATION:'Esperando tarifa de envío',AWAITING_CUSTOMER_APPROVAL:'Esperando aprobación del cliente',PROCESSING:'Procesando',PACKED:'Empaquetado',SHIPPED:'Enviado',DELIVERED:'Entregado',CANCELLED:'Cancelado'};
+const money=(v:number,c='RD$')=>`${c} ${Number(v||0).toLocaleString('es-DO',{minimumFractionDigits:c==='US$'?2:0,maximumFractionDigits:c==='US$'?2:0})}`;
+const USD_EXCHANGE_RATE=48;
+const rdToUsd=(price:number)=>Number((Number(price||0)/USD_EXCHANGE_RATE).toFixed(2));
+const discountTypes=[{value:'NONE',label:'Sin descuento'},{value:'PERCENT',label:'Porcentaje %'},{value:'FIXED_AMOUNT',label:'Monto fijo RD$'},{value:'FIXED_PRICE',label:'Precio final RD$'}];
+const saleChannels=[{value:'WHATSAPP',label:'WhatsApp'},{value:'FISICO',label:'Fisico'},{value:'INSTAGRAM',label:'Instagram'},{value:'OTRO',label:'Otro'}];
+const dateInputValue=(value:any)=>{if(!value)return '';const date=new Date(value);return Number.isNaN(date.getTime())?'':date.toISOString().slice(0,16)};
+const discountPreview=(item:any)=>{const price=Number(item.price||0);const value=Number(item.discountValue||0);if(!item.discountActive||item.discountType==='NONE'||!price||!value)return {salePrice:price,percent:0,save:0};let salePrice=price;if(item.discountType==='PERCENT')salePrice=price*(1-Math.min(value,100)/100);if(item.discountType==='FIXED_AMOUNT')salePrice=price-value;if(item.discountType==='FIXED_PRICE')salePrice=value;salePrice=Math.max(0,Math.min(price,Number(salePrice.toFixed(2))));const save=Number((price-salePrice).toFixed(2));return {salePrice,save,percent:price?Math.round((save/price)*100):0}};
+const variantLabel=(variant:any)=>{const explicit=String(variant?.name||'').trim();const parts=[variant?.color,variant?.size,variant?.model,variant?.lens].map(value=>String(value||'').trim()).filter(Boolean);return explicit||parts.join(' / ')||'Opcion';};
+const availableStockFor=(product:any)=>Array.isArray(product?.variants)&&product.variants.some((variant:any)=>variant.active)?product.variants.filter((variant:any)=>variant.active).reduce((sum:number,variant:any)=>sum+Number(variant.stock||0),0):Number(product?.availableStock??product?.stock??0);
+const readFile=(file:File)=>new Promise<string>((resolve,reject)=>{
+  const raw=()=>{const r=new FileReader();r.onerror=()=>reject(r.error);r.onload=()=>resolve(String(r.result||''));r.readAsDataURL(file);};
+  if(!file.type.startsWith('image/'))return raw();
+  const r=new FileReader();
+  r.onerror=()=>reject(r.error);
+  r.onload=()=>{
+    const source=String(r.result||'');
+    const img=new Image();
+    img.onerror=()=>resolve(source);
+    img.onload=()=>{
+      const maxSide=1400;
+      const scale=Math.min(1,maxSide/Math.max(img.width,img.height));
+      const width=Math.max(1,Math.round(img.width*scale));
+      const height=Math.max(1,Math.round(img.height*scale));
+      const canvas=document.createElement('canvas');
+      canvas.width=width;
+      canvas.height=height;
+      canvas.getContext('2d')?.drawImage(img,0,0,width,height);
+      const optimized=canvas.toDataURL('image/webp',0.82);
+      resolve(optimized.length<source.length?optimized:source);
+    };
+    img.src=source;
+  };
+  r.readAsDataURL(file);
+});
+const getImageSize=(src:string)=>new Promise<{width:number;height:number}>((resolve,reject)=>{
+  const img=new Image();
+  img.onload=()=>resolve({width:img.width,height:img.height});
+  img.onerror=()=>reject(new Error('No se pudo leer el tamano de la imagen'));
+  img.src=src;
+});
+type ModelCropSettings={zoom:number;positionX:number;positionY:number;width:number;height:number};
+const loadCropImage=(src:string)=>new Promise<HTMLImageElement>((resolve,reject)=>{
+  const img=new Image();
+  if(/^https?:\/\//i.test(src))img.crossOrigin='anonymous';
+  img.onload=()=>resolve(img);
+  img.onerror=()=>reject(new Error('No se pudo cargar la imagen para recortarla.'));
+  img.src=src;
+});
+function drawModelCrop(canvas:HTMLCanvasElement,img:HTMLImageElement,settings:ModelCropSettings){
+  const width=Math.max(1,Math.round(settings.width));
+  const height=Math.max(1,Math.round(settings.height));
+  const zoom=Math.max(1,Number(settings.zoom)||1);
+  const positionX=Math.max(0,Math.min(100,Number(settings.positionX)||0))/100;
+  const positionY=Math.max(0,Math.min(100,Number(settings.positionY)||0))/100;
+  const scale=Math.max(width/img.naturalWidth,height/img.naturalHeight)*zoom;
+  const drawWidth=img.naturalWidth*scale;
+  const drawHeight=img.naturalHeight*scale;
+  const offsetX=-Math.max(0,drawWidth-width)*positionX;
+  const offsetY=-Math.max(0,drawHeight-height)*positionY;
+  canvas.width=width;
+  canvas.height=height;
+  const context=canvas.getContext('2d');
+  if(!context)throw new Error('El navegador no pudo abrir el editor de imagen.');
+  context.clearRect(0,0,width,height);
+  context.imageSmoothingEnabled=true;
+  context.imageSmoothingQuality='high';
+  context.drawImage(img,offsetX,offsetY,drawWidth,drawHeight);
+}
+async function exportModelCrop(src:string,settings:ModelCropSettings){
+  const img=await loadCropImage(src);
+  const canvas=document.createElement('canvas');
+  drawModelCrop(canvas,img,settings);
+  try{
+    return canvas.toDataURL('image/webp',0.86);
+  }catch{
+    throw new Error('Esta URL no permite recorte por seguridad del navegador. Descarga la imagen y subela como archivo.');
+  }
+}
+const slugify=(v:string)=>v.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]+/g,'-').replace(/(^-|-$)+/g,'');
+
+const notificationTypeLabels:any={ORDER:'Pedidos',SUPPORT:'Ayuda',SALES:'Ventas',INVENTORY:'Inventario',SYSTEM:'Sistema'};
+const notificationSectionLabels:any={orders:'Pedidos',products:'Productos',support:'Ayuda',sales:'Ventas',inventory:'Inventario',users:'Usuarios',shipping:'Envios',notifications:'Sistema'};
+const notificationSummaryDefault={total:0,read:0,byType:{},byPriority:{},bySection:{}} as any;
+const notificationPriorityLabels:any={LOW:'Baja',NORMAL:'Normal',HIGH:'Alta',CRITICAL:'Crítica'};
+const notificationPriorityClass:any={LOW:'is-low',NORMAL:'is-normal',HIGH:'is-high',CRITICAL:'is-critical'};
+function notificationTargetTab(notification:any):Tab{
+  const action=String(notification?.actionUrl||'').toLowerCase();
+  const type=String(notification?.type||'SYSTEM').toUpperCase();
+  if(action.includes('product'))return 'products';
+  if(action.includes('inventory'))return 'inventory';
+  if(action.includes('order')||type==='ORDER')return 'orders';
+  if(action.includes('ticket')||action.includes('support')||type==='SUPPORT')return 'support';
+  if(action.includes('sale')||type==='SALES')return 'sales';
+  if(action.includes('shipping'))return 'shipping';
+  if(action.includes('user'))return 'users';
+  return 'notifications';
+}
+function urgentTaskClass(level:string){return level==='critical'?'is-critical':level==='warning'?'is-warning':'is-info';}
+function adminDashboardError(error: unknown) {
+  const status = Number((error as any)?.status || 0);
+  const detail = error instanceof Error ? error.message : '';
+  if (status === 401) return { title:'Sesión vencida', body:'Tu sesión administrativa ya no es válida. Inicia sesión otra vez para continuar.', detail };
+  if (status === 403) return { title:'Sin permiso', body:'Tu usuario no tiene permiso para cargar el dashboard administrativo.', detail };
+  if (status === 408) return { title:'API lenta', body:'La API tardó demasiado en responder. Intenta de nuevo en unos segundos.', detail };
+  if (status === 0) {
+    const isLocal = API_URL.includes('localhost') || API_URL.includes('127.0.0.1');
+    return {
+      title:'API no disponible',
+      body: isLocal
+        ? `No se pudo conectar con la API local configurada en ${API_URL}. Confirma que npm run dev siga corriendo.`
+        : `No se pudo conectar con la API publicada configurada en ${API_URL}. Revisa que el servicio de Render este activo y sin errores de deploy.`,
+      detail
+    };
+  }
+  return { title:'No se pudo cargar el panel', body: detail || 'La API respondió con un error inesperado al cargar el dashboard.', detail };
+}
+function Field({label,children,hint}:{label:string;children:ReactNode;hint?:string}){return <label className="admin-field block"><span className="admin-field-label mb-2 block text-xs font-bold uppercase tracking-[.12em]">{label}</span>{children}{hint&&<span className="admin-field-hint mt-1 block text-xs">{hint}</span>}</label>}
+
+type AdminSelectOption={value:string;label:ReactNode;disabled?:boolean;searchText?:string};
+function AdminSelect({value,onChange,options,className='',placeholder='Selecciona',searchable=false,searchPlaceholder='Buscar...'}:{value:any;onChange:(value:string)=>void;options:AdminSelectOption[];className?:string;placeholder?:string;searchable?:boolean;searchPlaceholder?:string}){
+  const [open,setOpen]=useState(false);
+  const [query,setQuery]=useState('');
+  const ref=useRef<HTMLDivElement|null>(null);
+  useEffect(()=>{if(!open){setQuery('');return;}const close=(event:MouseEvent)=>{if(ref.current&&!ref.current.contains(event.target as Node))setOpen(false)};const key=(event:KeyboardEvent)=>{if(event.key==='Escape')setOpen(false)};document.addEventListener('mousedown',close);document.addEventListener('keydown',key);return()=>{document.removeEventListener('mousedown',close);document.removeEventListener('keydown',key);};},[open]);
+  const current=options.find(option=>String(option.value)===String(value));
+  const normalizedQuery=query.trim().toLowerCase();
+  const filteredOptions=normalizedQuery?options.filter(option=>String(option.searchText??(typeof option.label==='string'?option.label:option.value)).toLowerCase().includes(normalizedQuery)):options;
+  return <div ref={ref} className={'admin-select '+(open?'is-open ':'')+className}>
+    <button type="button" className="admin-select-trigger" onClick={()=>setOpen(current=>!current)} aria-haspopup="listbox" aria-expanded={open}>
+      <span className={current?'admin-select-value':'admin-select-placeholder'}>{current?.label||placeholder}</span>
+      <ChevronDown size={16} className="admin-select-chevron"/>
+    </button>
+    {open&&<div className="admin-select-menu" role="listbox">
+      {searchable&&<div className="admin-select-search"><Search size={15}/><input autoFocus value={query} onChange={event=>setQuery(event.target.value)} placeholder={searchPlaceholder}/></div>}
+      {filteredOptions.map(option=>{const selected=String(option.value)===String(value);return <button key={option.value||'empty'} type="button" disabled={option.disabled} role="option" aria-selected={selected} className={'admin-select-option '+(selected?'is-selected':'')} onClick={()=>{if(option.disabled)return;onChange(option.value);setOpen(false);}}><span>{option.label}</span>{selected&&<Check size={15}/>}</button>})}
+      {!filteredOptions.length&&<p className="admin-select-empty">No encontramos coincidencias.</p>}
+    </div>}
+  </div>;
+}
+function Panel({title,children,action}:{title:string;children:ReactNode;action?:ReactNode}){return <section className="admin-panel rounded-[1.6rem] p-5"><div className="mb-5 flex flex-wrap items-center justify-between gap-3"><h2 className="admin-panel-title text-xl font-bold">{title}</h2>{action}</div>{children}</section>}
+function CollapsiblePanel({title,children,action,initialOpen=true}:{title:string;children:ReactNode;action?:ReactNode;initialOpen?:boolean}){
+  const [open,setOpen]=useState(initialOpen);
+  return <Panel title={title} action={<div className="flex flex-wrap items-center gap-2">{action}<button type="button" className="btn-ghost rounded-full px-4 py-2 text-xs" onClick={()=>setOpen(current=>!current)} aria-expanded={open}><ChevronDown size={15} className={open?'rotate-180 transition':'transition'}/>{open?'Minimizar':'Abrir'}</button></div>}>
+    {open?children:<div className="admin-collapsed-summary rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-white/45">Seccion minimizada. Presiona <b className="text-white/70">Abrir</b> para ver la informacion.</div>}
+  </Panel>;
+}
+function Empty({text}:{text:string}){return <div className="admin-empty rounded-2xl border border-dashed p-5 text-center text-sm">{text}</div>}
+function Toolbar({title,subtitle,search,setSearch,children}:{title:string;subtitle:string;search?:string;setSearch?:(v:string)=>void;children?:ReactNode}){return <div className="admin-toolbar mb-6 flex flex-wrap items-center justify-between gap-4 rounded-[1.6rem] p-5"><div><h1 className="text-2xl font-bold">{title}</h1><p className="admin-muted text-sm">{subtitle}</p></div><div className="flex flex-wrap items-center gap-3">{setSearch&&<div className="admin-search flex min-w-[250px] items-center gap-2 rounded-full px-4 py-2"><Search size={16}/><input value={search||''} onChange={e=>setSearch(e.target.value)} placeholder="Buscar..." className="w-full bg-transparent text-sm outline-none"/></div>}{children}</div></div>}
+function Stat({title,value,detail}:{title:string;value:any;detail:string}){return <div className="admin-stat rounded-[1.4rem] p-5"><span className="admin-muted text-sm">{title}</span><p className="mt-3 text-3xl font-black">{value}</p><p className="admin-muted mt-2 text-xs">{detail}</p></div>}
+function Donut({items}:{items:{label:string;value:number;color:string}[]}){const total=items.reduce((s,i)=>s+Math.max(i.value,0),0)||1;let acc=0;const stops=items.map(i=>{const a=(acc/total)*100;acc+=Math.max(i.value,0);const b=(acc/total)*100;return i.color+' '+a+'% '+b+'%'}).join(', ');return <div className="grid items-center gap-5 md:grid-cols-[220px_1fr]"><div className="admin-donut mx-auto grid h-[210px] w-[210px] place-items-center rounded-full" style={{background:'conic-gradient('+stops+')'}}><div className="admin-donut-core grid h-[118px] w-[118px] place-items-center rounded-full text-center"><PieChart/><span className="admin-muted text-xs">Total</span></div></div><div className="space-y-3">{items.map(i=><div key={i.label} className="admin-mini-row flex items-center justify-between rounded-2xl px-4 py-3"><span className="flex items-center gap-2"><span className="h-3 w-3 rounded-full" style={{background:i.color}}/>{i.label}</span><b>{i.value}</b></div>)}</div></div>}
+function NotificationDashboardPanel(){
+  const qc=useQueryClient();
+  const {data:summary=notificationSummaryDefault}=useQuery({queryKey:['admin-notifications-summary'],queryFn:()=>api<any>('/admin/notifications/summary'),refetchInterval:30000});
+  const {data:items=[]}=useQuery({queryKey:['admin-dashboard-notifications'],queryFn:()=>api<any[]>('/admin/notifications?unread=0')});
+  const markRead=useMutation({mutationFn:(id:string)=>api('/admin/notifications/'+id+'/read',{method:'PATCH',body:JSON.stringify({})}),onSuccess:()=>{qc.invalidateQueries({queryKey:['admin-notifications-summary']});qc.invalidateQueries({queryKey:['admin-dashboard-notifications']});qc.invalidateQueries({queryKey:['admin-notifications']});qc.invalidateQueries({queryKey:['admin-dashboard']});}});
+  const typeEntries=['ORDER','SUPPORT','SALES','INVENTORY','SYSTEM'].map(type=>({type,label:notificationTypeLabels[type]||type,count:summary.byType?.[type]||0}));
+  const sectionEntries=Object.entries(summary.bySection||{}).sort((a:any,b:any)=>b[1]-a[1]).slice(0,5);
+  return <Panel title="Centro de notificaciones" action={<span className="admin-count-pill"><Bell size={15}/>{summary.total||0} sin leer</span>}>
+    <div className="grid grid-cols-[repeat(auto-fit,minmax(128px,1fr))] gap-3">{typeEntries.map(item=><div key={item.type} className={'admin-notification-chip '+(item.count?'has-count':'')}><span>{item.label}</span><b>{item.count}</b></div>)}</div>
+    {!!sectionEntries.length&&<div className="mt-3 flex flex-wrap gap-2">{sectionEntries.map(([section,count]:any)=><span key={section} className="admin-section-pill">{notificationSectionLabels[section]||section}: {count}</span>)}</div>}
+    <div className="mt-5 space-y-3">{items.slice(0,8).map((notification:any)=><button type="button" key={notification.id} onClick={()=>!notification.read&&markRead.mutate(notification.id)} className={'admin-notification-item w-full text-left '+(notification.read?'is-read':'is-unread')}><div className="flex items-start justify-between gap-3"><div><span className="admin-notification-type">{notificationTypeLabels[notification.type]||notification.type}</span><b className="mt-1 block">{notification.title}</b><p className="mt-1 text-sm">{notification.body}</p><p className="mt-2 text-xs">{notification.priority} · {new Date(notification.createdAt).toLocaleString('es-DO')}</p></div>{!notification.read&&<span className="admin-unread-dot"/>}</div></button>)}{!items.length&&<Empty text="No hay notificaciones todavía."/>}</div>
+  </Panel>
+}
+
+function AdminNotificationBell({setTab}:{setTab:(t:Tab)=>void}){
+  const qc=useQueryClient();
+  const [open,setOpen]=useState(false);
+  const ref=useRef<HTMLDivElement|null>(null);
+  const {data:summary=notificationSummaryDefault}=useQuery({queryKey:['admin-notifications-summary'],queryFn:()=>api<any>('/admin/notifications/summary'),refetchInterval:30000});
+  const {data:items=[]}=useQuery({queryKey:['admin-topbar-notifications'],queryFn:()=>api<any[]>('/admin/notifications?unread=0'),refetchInterval:30000});
+  const invalidate=()=>{qc.invalidateQueries({queryKey:['admin-notifications-summary']});qc.invalidateQueries({queryKey:['admin-topbar-notifications']});qc.invalidateQueries({queryKey:['admin-dashboard-notifications']});qc.invalidateQueries({queryKey:['admin-notifications']});qc.invalidateQueries({queryKey:['admin-dashboard']});};
+  const read=useMutation({mutationFn:(id:string)=>api('/admin/notifications/'+id+'/read',{method:'PATCH',body:JSON.stringify({})}),onSuccess:()=>invalidate()});
+  const readAll=useMutation({mutationFn:()=>api('/admin/notifications/read-all',{method:'POST',body:JSON.stringify({})}),onSuccess:()=>{invalidate();toast.success('Notificaciones marcadas como leídas')}});
+  useEffect(()=>{if(!open)return;const close=(event:MouseEvent)=>{if(ref.current&&!ref.current.contains(event.target as Node))setOpen(false)};document.addEventListener('mousedown',close);return()=>document.removeEventListener('mousedown',close);},[open]);
+  const openNotification=(notification:any)=>{if(!notification.read)read.mutate(notification.id);setTab(notificationTargetTab(notification));setOpen(false);};
+  return <div ref={ref} className="admin-bell-wrap">
+    <button type="button" className={'admin-bell '+(summary.total?'has-count':'')} onClick={()=>setOpen(value=>!value)} aria-label="Abrir notificaciones">
+      <Bell size={18}/>{summary.total>0&&<span>{summary.total>99?'99+':summary.total}</span>}
+    </button>
+    {open&&<div className="admin-bell-panel">
+      <div className="mb-3 flex items-start justify-between gap-3">
+        <div><p className="text-xs font-black uppercase tracking-[.18em] text-orange-400">Centro de avisos</p><h3 className="text-lg font-black">Notificaciones</h3></div>
+        <button type="button" className="admin-tiny-action" onClick={()=>readAll.mutate()} disabled={!summary.total}>Leer todo</button>
+      </div>
+      <div className="mb-3 grid grid-cols-3 gap-2">
+        <span className="admin-bell-stat"><b>{summary.total||0}</b><small>sin leer</small></span>
+        <span className="admin-bell-stat"><b>{summary.byPriority?.HIGH||0}</b><small>alta</small></span>
+        <span className="admin-bell-stat"><b>{summary.byType?.SUPPORT||0}</b><small>ayuda</small></span>
+      </div>
+      <div className="max-h-[380px] space-y-2 overflow-auto pr-1">
+        {items.slice(0,8).map((notification:any)=><button key={notification.id} type="button" className={'admin-bell-item '+(notification.read?'is-read':'is-unread')} onClick={()=>openNotification(notification)}>
+          <span className={'admin-priority-dot '+(notificationPriorityClass[notification.priority]||'is-normal')}/>
+          <span className="min-w-0 flex-1"><b>{notification.title}</b><small>{notificationTypeLabels[notification.type]||notification.type} · {notificationPriorityLabels[notification.priority]||notification.priority}</small><em>{notification.body}</em></span>
+        </button>)}
+        {!items.length&&<div className="admin-bell-empty"><Inbox size={20}/><span>No hay avisos todavía.</span></div>}
+      </div>
+    </div>}
+  </div>
+}
+
+function SystemHealthPanel(){
+  const {data,isLoading,error}=useQuery({queryKey:['admin-system-health'],queryFn:async()=>{const res=await fetch(API_URL+'/health',{cache:'no-store'});if(!res.ok)throw new Error('health failed');return res.json();},refetchInterval:60000,retry:false});
+  const apiOk=Boolean(data?.ok)&&!error;
+  const mailOk=data?.mail==='configured';
+  const cards=[
+    {label:'API',ok:apiOk,detail:apiOk?'Servicio activo':'No responde'},
+    {label:'Base de datos',ok:data?.database==='ok',detail:data?.database==='ok'?'Conectada':'Revisar conexión'},
+    {label:'Correo SMTP',ok:mailOk,detail:mailOk?'Configurado':'Pendiente'},
+  ];
+  return <Panel title="Salud del sistema" action={<span className={'admin-health-pill '+(apiOk?'is-ok':'is-bad')}>{isLoading?'Revisando':apiOk?'Operativo':'Atención'}</span>}>
+    <div className="grid gap-3 md:grid-cols-3">{cards.map(card=><div key={card.label} className={'admin-health-card '+(card.ok?'is-ok':'is-bad')}>{card.ok?<CheckCircle2 size={18}/>:<XCircle size={18}/>}<div><b>{card.label}</b><p>{card.detail}</p></div></div>)}</div>
+    <p className="admin-muted mt-4 text-xs">API configurada: {API_URL}</p>
+  </Panel>
+}
+
+function UrgentTasksPanel({data,setTab}:any){
+  const tasks=[
+    {level:data.pendingOrders>0?'critical':'info',title:'Pedidos por atender',body:data.pendingOrders>0?`${data.pendingOrders} pedido(s) necesitan revisión.`:'No hay pedidos urgentes ahora.',tab:'orders',count:data.pendingOrders||0},
+    {level:data.lowStock>0?'warning':'info',title:'Inventario bajo',body:data.lowStock>0?`${data.lowStock} producto(s) están cerca de agotarse.`:'Inventario sin alertas críticas.',tab:'products',count:data.lowStock||0},
+    {level:data.notifications?.length?'warning':'info',title:'Avisos sin leer',body:data.notifications?.length?`${data.notifications.length} aviso(s) recientes sin leer.`:'Bandeja operativa tranquila.',tab:'notifications',count:data.notifications?.length||0},
+    {level:data.activeDrops>0?'info':'warning',title:'Drops activos',body:data.activeDrops>0?`${data.activeDrops} drop(s) activos.`:'No hay drop activo configurado.',tab:'drops',count:data.activeDrops||0},
+  ];
+  return <Panel title="Prioridades de hoy">
+    <div className="grid gap-3 md:grid-cols-2">{tasks.map(task=><button key={task.title} type="button" onClick={()=>setTab(task.tab)} className={'admin-task-card '+urgentTaskClass(task.level)}><span>{task.level==='critical'?<AlertTriangle size={19}/>:task.level==='warning'?<Bell size={19}/>:<CheckCircle2 size={19}/>}</span><div><b>{task.title}</b><p>{task.body}</p></div><em>{task.count}</em></button>)}</div>
+  </Panel>
+}
+function Shell({children,tab,setTab}:{children:ReactNode;tab:Tab;setTab:(t:Tab)=>void}){
+  const {user,logout}=useAuth();
+  const [theme,setTheme]=useState<'dark'|'light'>('dark');
+  useEffect(()=>{const saved=typeof window!=='undefined'?window.localStorage.getItem('mb-admin-theme'):null;if(saved==='light'||saved==='dark')setTheme(saved);},[]);
+  useEffect(()=>{if(typeof window!=='undefined')window.localStorage.setItem('mb-admin-theme',theme);},[theme]);
+  const visible=tabs.filter(t=>user?.role==='ADMIN'||user?.permissions?.includes(t.permission));
+  const {data:summary=notificationSummaryDefault}=useQuery({queryKey:['admin-notifications-summary'],queryFn:()=>api<any>('/admin/notifications/summary'),enabled:Boolean(user&&visible.length),refetchInterval:30000});
+  const countForTab=(item:any)=>item.key==='notifications'?(summary.total||0):(summary.bySection?.[item.permission]||0);
+  return <div className={'admin-shell admin-'+theme}>
+    <aside className="admin-sidebar fixed left-0 top-0 z-30 hidden h-screen w-[290px] p-5 lg:block"><div className="mb-8 flex items-center gap-3"><div className="grid h-12 w-12 place-items-center rounded-2xl bg-orange-500 text-black"><Flame/></div><div><p className="text-xl font-black tracking-[.12em]">MAGMA</p><p className="admin-muted text-xs uppercase tracking-[.22em]">Panel de control</p></div></div><div className="admin-session-card mb-5 rounded-3xl p-4"><p className="text-xs uppercase tracking-[.18em] text-orange-400">Sesión</p><p className="font-bold">{user?.name}</p><p className="admin-muted truncate text-xs">{user?.email}</p></div><nav className="max-h-[70vh] space-y-1 overflow-auto pr-1">{visible.map(t=>{const count=countForTab(t);return <button key={t.key} onClick={()=>setTab(t.key)} className={'admin-nav-item '+(tab===t.key?'is-active':'')}><span className="flex items-center gap-3">{t.icon}{t.label}</span>{count>0&&<span className="admin-nav-badge">{count}</span>}</button>})}</nav><button onClick={logout} className="admin-logout absolute bottom-5 left-5 right-5 rounded-2xl px-4 py-3 text-sm"><LogOut size={16} className="mr-2 inline"/>Cerrar sesión</button></aside>
+    <main className="lg:ml-[290px]"><header className="admin-topbar sticky top-0 z-20 flex flex-wrap items-center justify-between gap-4 px-5 py-4 backdrop-blur-xl"><div><p className="text-xs font-bold uppercase tracking-[.24em] text-orange-400">Magma Blaze</p><h1 className="text-3xl font-black">Panel administrativo</h1></div><div className="flex flex-wrap items-center gap-3"><AdminNotificationBell setTab={setTab}/><button type="button" onClick={()=>setTheme(theme==='dark'?'light':'dark')} className="admin-theme-toggle">{theme==='dark'?<Sun size={17}/>:<Moon size={17}/>}<span>{theme==='dark'?'Modo claro':'Modo oscuro'}</span></button><a href="/" target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 rounded-full border border-orange-400/40 bg-orange-500 px-5 py-3 text-sm font-black uppercase tracking-[.12em] text-black shadow-[0_0_24px_rgba(249,115,22,.25)] transition hover:-translate-y-0.5 hover:bg-orange-400"><ShoppingBag size={16}/> Entrar a la tienda</a></div></header><div className="p-5 lg:p-8">{children}</div></main>
+  </div>
+}
+function Overview({data}:any){return <div className="space-y-6"><div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4"><Stat title="Ingresos" value={money(data.revenue)} detail="Ventas registradas"/><Stat title="Pedidos 24h" value={data.ordersLast24} detail="Órdenes recientes"/><Stat title="Productos" value={data.products} detail={(data.lowStock||0)+' con stock bajo'}/><Stat title="Margen" value={(data.finance?.margin||0)+'%'} detail={money(data.finance?.totalProfit||0)+' ganancia estimada'}/></div><div className="grid gap-6 xl:grid-cols-[1fr_.95fr]"><Panel title="Órdenes de las últimas 24 horas">{data.recentOrders?.length?data.recentOrders.map((o:any)=><div key={o.id} className="admin-list-row flex justify-between py-3"><div><b>{o.user?.name}</b><p className="admin-muted text-sm">{statusLabels[o.status]||o.status} · {o.country} · {new Date(o.createdAt).toLocaleString('es-DO')}</p></div><span>{money(o.total,o.currency==='USD'?'US$':'RD$')}</span></div>):<Empty text="No hay pedidos en las últimas 24 horas."/>}</Panel><NotificationDashboardPanel/></div><div className="grid gap-6 xl:grid-cols-2"><Panel title="Gráfico circular de operación"><Donut items={[{label:'Pedidos',value:data.orders||0,color:'#fb923c'},{label:'Usuarios',value:data.users||0,color:'#facc15'},{label:'Productos',value:data.products||0,color:'#ef4444'},{label:'Drops activos',value:data.activeDrops||0,color:'#a855f7'}]}/></Panel><Panel title="Recomendaciones inteligentes">{data.aiRecommendations?.length?data.aiRecommendations.map((r:string,i:number)=><div key={i} className="admin-recommendation mb-3 rounded-2xl p-4 text-sm">{r}</div>):<Empty text="Aún no hay suficientes datos para recomendaciones profundas."/>}</Panel></div></div>}
+function ProductsTab(){const qc=useQueryClient();const [q,setQ]=useState('');const [status,setStatus]=useState('');const {data=[]}=useQuery({queryKey:['admin-products',q,status],queryFn:()=>api<any[]>(`/admin/products?q=${encodeURIComponent(q)}&status=${encodeURIComponent(status)}`)});const {data:cats=[]}=useQuery({queryKey:['admin-categories'],queryFn:()=>api<any[]>('/admin/categories')});const blank={id:'',name:'',slug:'',description:'',price:0,priceUsd:0,cost:0,stock:0,lowStockThreshold:5,imageUrl:'',status:'NEW',categoryId:''};const [f,setF]=useState<any>(blank);const save=useMutation({mutationFn:(payload:any)=>api(payload.id?`/admin/products/${payload.id}`:'/admin/products',{method:payload.id?'PATCH':'POST',body:JSON.stringify({...payload,categoryId:payload.categoryId||cats[0]?.id,id:undefined})}),onSuccess:()=>{qc.invalidateQueries({queryKey:['admin-products']});toast.success('Producto guardado');setF(blank)},onError:(e:any)=>toast.error(e.message)});const del=useMutation({mutationFn:(id:string)=>api('/admin/products/'+id,{method:'DELETE'}),onSuccess:()=>{qc.invalidateQueries({queryKey:['admin-products']});toast.success('Producto eliminado o marcado agotado')}});return <div><Toolbar title="Productos" subtitle="Controla precios RD/USA, costo, inventario, imagen y margen." search={q} setSearch={setQ}><Field label="Filtrar por estado"><AdminSelect className="min-w-[210px]" value={status} onChange={setStatus} options={[{value:'',label:'Todos'},...['ACTIVE','NEW','BESTSELLER','SOLD_OUT','UPCOMING','LIMITED_DROP'].map(x=>({value:x,label:x}))]}/></Field></Toolbar>{!cats.length&&<div className="mb-5 rounded-2xl border border-yellow-400/20 bg-yellow-500/10 p-4 text-sm text-yellow-100">Primero crea una categoría para poder publicar productos.</div>}<Panel title={f.id?'Editar producto':'Crear producto'}><div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4"><Field label="Nombre del producto"><input className="input-dark" value={f.name} onChange={e=>setF({...f,name:e.target.value,slug:f.slug||slugify(e.target.value)})}/></Field><Field label="Slug / URL"><input className="input-dark" value={f.slug} onChange={e=>setF({...f,slug:e.target.value})}/></Field><Field label="Precio RD$" hint="El precio US$ se calcula automático con dólar a RD$48."><input type="number" step="0.01" className="input-dark" value={f.price} onChange={e=>{const price=Number(e.target.value);setF({...f,price,priceUsd:rdToUsd(price)})}}/></Field><Field label="Precio US$" hint={`Calculado: RD$ ${Number(f.price||0).toLocaleString('es-DO')} / 48 = US$ ${rdToUsd(f.price).toFixed(2)}`}><input type="number" step="0.01" readOnly className="input-dark opacity-80" value={Number(f.priceUsd||0).toFixed(2)} /></Field><Field label="Costo de compra RD$"><input type="number" className="input-dark" value={f.cost} onChange={e=>setF({...f,cost:Number(e.target.value)})}/></Field><Field label="Stock disponible"><input type="number" className="input-dark" value={f.stock} onChange={e=>setF({...f,stock:Number(e.target.value)})}/></Field><Field label="Umbral stock bajo"><input type="number" className="input-dark" value={f.lowStockThreshold??5} onChange={e=>setF({...f,lowStockThreshold:Number(e.target.value)})}/></Field><Field label="Estado"><AdminSelect value={f.status} onChange={value=>setF({...f,status:value})} options={['ACTIVE','NEW','BESTSELLER','SOLD_OUT','UPCOMING','LIMITED_DROP'].map(x=>({value:x,label:x}))}/></Field><Field label="Categoría"><AdminSelect value={f.categoryId||cats[0]?.id||''} onChange={value=>setF({...f,categoryId:value})} options={cats.map((c:any)=>({value:c.id,label:<>{c.icon} {c.name}</>}))}/></Field><Field label="Subir imagen"><input type="file" accept="image/*" className="input-dark" onChange={async e=>{const file=e.target.files?.[0];if(file)setF({...f,imageUrl:await readFile(file)})}}/></Field><Field label="URL / imagen generada"><input className="input-dark" value={f.imageUrl} onChange={e=>setF({...f,imageUrl:e.target.value})}/></Field><Field label="Descripción"><textarea className="input-dark min-h-[90px]" value={f.description} onChange={e=>setF({...f,description:e.target.value})}/></Field>{f.imageUrl&&<div><span className="mb-2 block text-xs font-bold uppercase tracking-[.12em] text-white/55">Vista previa</span><img src={f.imageUrl} className="h-64 w-full rounded-3xl object-cover"/></div>}<button disabled={!cats.length} className="btn-ember justify-center self-end disabled:opacity-40" onClick={()=>save.mutate(f)}>{f.id?'Guardar cambios':'Crear producto'}</button>{f.id&&<button className="btn-ghost justify-center self-end" onClick={()=>setF(blank)}>Cancelar edición</button>}</div></Panel><div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-3">{data.map((p:any)=><div key={p.id} className="rounded-3xl border border-white/10 bg-white/[.03] p-5"><img src={p.imageUrl} className="mb-4 h-64 w-full rounded-3xl object-cover"/><b>{p.name}</b><p className="text-sm text-white/45">{p.category?.name||p.categoryName} · stock {p.stock} · bajo en {p.lowStockThreshold??5}</p><p className="mt-2 text-sm">Venta {money(p.price)} · Costo {money(p.cost)} · US {money(p.priceUsd,'US$')}</p><div className="mt-4 flex gap-2"><button className="rounded-full bg-white/10 px-4 py-2 text-sm" onClick={()=>setF({...p,priceUsd:rdToUsd(p.price),lowStockThreshold:p.lowStockThreshold??5})}>Editar</button><button className="rounded-full bg-red-500/10 px-4 py-2 text-sm text-red-200" onClick={()=>del.mutate(p.id)}>Eliminar</button></div></div>)}</div></div>}
+function CategoriesTab(){const qc=useQueryClient();const {data=[]}=useQuery({queryKey:['admin-categories'],queryFn:()=>api<any[]>('/admin/categories')});const [f,setF]=useState({id:'',name:'',slug:'',icon:'🕶️',sortOrder:0});const save=useMutation({mutationFn:(p:any)=>api(p.id?`/admin/categories/${p.id}`:'/admin/categories',{method:p.id?'PATCH':'POST',body:JSON.stringify({...p,id:undefined})}),onSuccess:()=>{qc.invalidateQueries({queryKey:['admin-categories']});toast.success('Categoría guardada');setF({id:'',name:'',slug:'',icon:'🕶️',sortOrder:0})},onError:(e:any)=>toast.error(e.message)});const del=useMutation({mutationFn:(id:string)=>api('/admin/categories/'+id,{method:'DELETE'}),onSuccess:()=>{qc.invalidateQueries({queryKey:['admin-categories']});toast.success('Categoría eliminada')},onError:(e:any)=>toast.error(e.message)});return <div className="space-y-6"><Panel title={f.id?'Editar categoría':'Crear categoría'}><div className="grid gap-4 md:grid-cols-5"><Field label="Nombre visible"><input className="input-dark" value={f.name} onChange={e=>setF({...f,name:e.target.value,slug:f.slug||slugify(e.target.value)})}/></Field><Field label="Slug / URL" hint="Si lo dejas vacío, se genera automáticamente."><input className="input-dark" value={f.slug} onChange={e=>setF({...f,slug:e.target.value})} placeholder="opcional"/></Field><Field label="Ícono / emoji"><input className="input-dark text-2xl" value={f.icon} onChange={e=>setF({...f,icon:e.target.value})} placeholder="🕶️" maxLength={12}/></Field><Field label="Orden"><input type="number" className="input-dark" value={f.sortOrder} onChange={e=>setF({...f,sortOrder:Number(e.target.value)})}/></Field><button className="btn-ember justify-center self-end" onClick={()=>save.mutate(f)}>Guardar</button></div></Panel><Panel title="Categorías actuales">{data.map((c:any)=><div key={c.id} className="mb-3 flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-black/30 p-4"><div className="flex items-center gap-4"><span className="grid h-12 w-12 place-items-center rounded-2xl bg-white/10 text-2xl">{c.icon||'🕶️'}</span><div><b>{c.name}</b><p className="text-sm text-white/45">/{c.slug} · {c._count?.products||0} productos · orden {c.sortOrder}</p></div></div><div className="flex gap-2"><button className="rounded-full bg-white/10 px-4 py-2 text-sm" onClick={()=>setF({id:c.id,name:c.name,slug:c.slug,icon:c.icon||'🕶️',sortOrder:c.sortOrder||0})}>Editar</button><button className="rounded-full bg-red-500/10 px-4 py-2 text-sm text-red-200" onClick={()=>del.mutate(c.id)}>Eliminar</button></div></div>)}{!data.length&&<Empty text="Aún no has creado categorías."/>}</Panel></div>}
+function OrdersTab(){const qc=useQueryClient();const [q,setQ]=useState('');const [status,setStatus]=useState('');const {data=[]}=useQuery({queryKey:['admin-orders',q,status],queryFn:()=>api<any[]>(`/admin/orders?q=${encodeURIComponent(q)}&status=${encodeURIComponent(status)}`)});const [editing,setEditing]=useState<any|null>(null);const update=useMutation({mutationFn:({id,payload}:any)=>api('/admin/orders/'+id,{method:'PATCH',body:JSON.stringify(payload)}),onSuccess:()=>{qc.invalidateQueries({queryKey:['admin-orders']});qc.invalidateQueries({queryKey:['admin-dashboard']});toast.success('Pedido actualizado');setEditing(null)},onError:(e:any)=>toast.error(e.message)});return <div><Toolbar title="Pedidos y fulfillment" subtitle="Filtra pedidos, confirma tarifas, marca empaquetado, enviado y entregado." search={q} setSearch={setQ}><AdminSelect className="min-w-[230px]" value={status} onChange={setStatus} options={[{value:"",label:"Todos los estados"},...orderStatuses.map(s=>({value:s,label:statusLabels[s]}))]}/></Toolbar>{editing&&<Panel title={`Gestionar pedido · ${editing.id.slice(0,8)}`}><div className="grid gap-4 md:grid-cols-3"><Field label="Estado"><AdminSelect value={editing.status} onChange={value=>setEditing({...editing,status:value})} options={orderStatuses.map(s=>({value:s,label:statusLabels[s]}))}/></Field><Field label="Precio de envío"><input type="number" className="input-dark" value={editing.shipping||0} onChange={e=>setEditing({...editing,shipping:Number(e.target.value)})}/></Field><Field label="Nota de empaque"><input className="input-dark" value={editing.packageNote||''} onChange={e=>setEditing({...editing,packageNote:e.target.value})}/></Field><Field label="Lugar/parada de entrega"><input className="input-dark" value={editing.deliveryPlace||''} onChange={e=>setEditing({...editing,deliveryPlace:e.target.value})}/></Field><Field label="Chofer"><input className="input-dark" value={editing.driverName||''} onChange={e=>setEditing({...editing,driverName:e.target.value})}/></Field><Field label="Teléfono chofer"><input className="input-dark" value={editing.driverPhone||''} onChange={e=>setEditing({...editing,driverPhone:e.target.value})}/></Field><Field label="Número de envío / referencia"><input className="input-dark" value={editing.shippingReference||''} onChange={e=>setEditing({...editing,shippingReference:e.target.value})}/></Field><Field label="Factura de envío"><input type="file" accept="image/*,.pdf" className="input-dark" onChange={async e=>{const file=e.target.files?.[0];if(file)setEditing({...editing,shippingInvoiceUrl:await readFile(file)})}}/></Field><Field label="Nota interna"><input className="input-dark" value={editing.adminNote||''} onChange={e=>setEditing({...editing,adminNote:e.target.value})}/></Field><button className="btn-ember justify-center" onClick={()=>update.mutate({id:editing.id,payload:editing})}>Guardar / enviar actualización</button><button className="btn-ghost justify-center" onClick={()=>setEditing(null)}>Cancelar</button></div><p className="mt-3 text-xs text-white/45">Si cambias el precio de envío, el cliente recibirá notificación interna y correo para aceptar o cancelar.</p></Panel>}<div className="mt-6 space-y-4">{data.map((o:any)=><div key={o.id} className="rounded-3xl border border-white/10 bg-white/[.03] p-5"><div className="flex flex-wrap justify-between gap-4"><div><b>{o.user?.name}</b><p className="text-sm text-white/45">{o.user?.email} · {new Date(o.createdAt).toLocaleString('es-DO')}</p><p className="mt-2 text-sm text-orange-100">{statusLabels[o.status]||o.status} · {o.shippingStatus}</p></div><div className="text-right"><p className="text-2xl font-black">{money(o.total,o.currency==='USD'?'US$':'RD$')}</p><p className="text-xs text-white/45">Envío {money(o.shipping,o.currency==='USD'?'US$':'RD$')}</p></div></div><div className="mt-4 grid grid-cols-4 gap-2 text-center text-xs"><span className="rounded-full bg-orange-500/20 py-2">Procesando</span><span className={`rounded-full py-2 ${['PACKED','SHIPPED','DELIVERED'].includes(o.status)?'bg-orange-500/20':'bg-white/10'}`}>Empaquetado</span><span className={`rounded-full py-2 ${['SHIPPED','DELIVERED'].includes(o.status)?'bg-orange-500/20':'bg-white/10'}`}>Enviado</span><span className={`rounded-full py-2 ${o.status==='DELIVERED'?'bg-green-500/20':'bg-white/10'}`}>Entregado</span></div><div className="mt-4 flex flex-wrap gap-2"><button className="rounded-full bg-white/10 px-4 py-2 text-sm" onClick={()=>setEditing(o)}>Gestionar</button><button className="rounded-full bg-orange-500/15 px-4 py-2 text-sm text-orange-100" onClick={()=>update.mutate({id:o.id,payload:{shipping:o.shipping}})}>Enviar confirmación tarifa</button><button className="rounded-full bg-white/10 px-4 py-2 text-sm" onClick={()=>update.mutate({id:o.id,payload:{status:'PACKED'}})}>Marcar empaquetado</button><button className="rounded-full bg-white/10 px-4 py-2 text-sm" onClick={()=>update.mutate({id:o.id,payload:{status:'SHIPPED'}})}>Marcar enviado</button><button className="rounded-full bg-white/10 px-4 py-2 text-sm" onClick={()=>update.mutate({id:o.id,payload:{status:'DELIVERED'}})}>Marcar entregado</button></div></div>)}{!data.length&&<Empty text="Todavía no hay pedidos con esos filtros."/>}</div></div>}
+function DropsTab(){const qc=useQueryClient();const {data=[]}=useQuery({queryKey:['admin-drops'],queryFn:()=>api<any[]>('/admin/drops')});const blank={title:'',description:'',startsAt:'',endsAt:'',isActive:false,lockedMode:false};const [f,setF]=useState<any>(blank);const save=useMutation({mutationFn:(p:any)=>api(p.id?`/admin/drops/${p.id}`:'/admin/drops',{method:p.id?'PATCH':'POST',body:JSON.stringify({...p,id:undefined})}),onSuccess:()=>{qc.invalidateQueries({queryKey:['admin-drops']});qc.invalidateQueries({queryKey:['admin-dashboard']});toast.success('Drop guardado');setF(blank)}});return <div className="space-y-6"><Toolbar title="Drops" subtitle="Crea y controla lanzamientos limitados."/><Panel title={f.id?'Editar drop':'Crear drop'}><div className="grid gap-4 md:grid-cols-2"><Field label="Título"><input className="input-dark" value={f.title} onChange={e=>setF({...f,title:e.target.value})}/></Field><Field label="Descripción"><input className="input-dark" value={f.description} onChange={e=>setF({...f,description:e.target.value})}/></Field><Field label="Inicio"><input className="input-dark" type="datetime-local" value={f.startsAt?.slice?.(0,16)||f.startsAt} onChange={e=>setF({...f,startsAt:e.target.value})}/></Field><Field label="Fin"><input className="input-dark" type="datetime-local" value={f.endsAt?.slice?.(0,16)||f.endsAt} onChange={e=>setF({...f,endsAt:e.target.value})}/></Field><label className="text-sm text-white/60"><input type="checkbox" className="mr-2" checked={f.isActive} onChange={e=>setF({...f,isActive:e.target.checked})}/> Drop activo</label><label className="text-sm text-white/60"><input type="checkbox" className="mr-2" checked={f.lockedMode} onChange={e=>setF({...f,lockedMode:e.target.checked})}/> Bloquear sitio público durante el drop</label><button className="btn-ember justify-center md:col-span-2" onClick={()=>save.mutate(f)}>{f.id?'Guardar cambios':'Crear drop'}</button></div></Panel><Panel title="Drops guardados">{data.map((d:any)=><div key={d.id} className="mb-3 flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-black/30 p-4"><div><b>{d.title}</b><p className="text-sm text-white/45">{d.isActive?'activo':'inactivo'} · modelos {d._count?.modelPhotos||0}</p></div><button className="rounded-full bg-white/10 px-4 py-2 text-sm" onClick={()=>setF({...d,startsAt:d.startsAt?.slice(0,16),endsAt:d.endsAt?.slice(0,16)})}>Editar</button></div>)}{!data.length&&<Empty text="No hay drops creados."/>}</Panel></div>}
+function ModelsTab(){const qc=useQueryClient();const {data:drops=[]}=useQuery({queryKey:['admin-drops'],queryFn:()=>api<any[]>('/admin/drops')});const {data:products=[]}=useQuery({queryKey:['admin-products'],queryFn:()=>api<any[]>('/admin/products')});const {data:models=[]}=useQuery({queryKey:['admin-models'],queryFn:()=>api<any[]>('/admin/models')});const blank={id:'',dropId:'',productId:'',imageUrl:'',caption:'',tagX:50,tagY:45,sortOrder:1,isActive:true};const [f,setF]=useState<any>(blank);const save=useMutation({mutationFn:(p:any)=>api(p.id?`/admin/models/${p.id}`:'/admin/models',{method:p.id?'PATCH':'POST',body:JSON.stringify({...p,id:undefined,dropId:p.dropId||drops[0]?.id,productId:p.productId||products[0]?.id})}),onSuccess:()=>{qc.invalidateQueries({queryKey:['admin-models']});toast.success('Foto de modelo guardada');setF(blank)}});function place(e:any){const rect=e.currentTarget.getBoundingClientRect();setF({...f,tagX:Math.round(((e.clientX-rect.left)/rect.width)*100),tagY:Math.round(((e.clientY-rect.top)/rect.height)*100)})}return <div className="space-y-6"><Toolbar title="Modelos / Lookbook" subtitle="Sube fotos de personas usando las gafas y coloca la etiqueta con un click."/><Panel title={f.id?'Editar foto de modelo':'Crear foto de modelo'}><div className="grid gap-4 md:grid-cols-2"><Field label="Drop"><AdminSelect value={f.dropId||drops[0]?.id||''} onChange={value=>setF({...f,dropId:value})} options={drops.map((d:any)=>({value:d.id,label:d.title}))}/></Field><Field label="Gafa modelada"><AdminSelect value={f.productId||products[0]?.id||''} onChange={value=>setF({...f,productId:value})} options={products.map((p:any)=>({value:p.id,label:p.name}))}/></Field><Field label="Subir foto"><input className="input-dark" type="file" accept="image/*" onChange={async e=>{const file=e.target.files?.[0];if(file)setF({...f,imageUrl:await readFile(file)})}}/></Field><Field label="Caption"><input className="input-dark" value={f.caption} onChange={e=>setF({...f,caption:e.target.value})}/></Field><Field label="Posición X (%)"><input type="number" className="input-dark" value={f.tagX} onChange={e=>setF({...f,tagX:Number(e.target.value)})}/></Field><Field label="Posición Y (%)"><input type="number" className="input-dark" value={f.tagY} onChange={e=>setF({...f,tagY:Number(e.target.value)})}/></Field><button className="btn-ember justify-center md:col-span-2" onClick={()=>save.mutate(f)}>{f.id?'Guardar cambios':'Guardar foto'}</button></div>{f.imageUrl&&<div onClick={place} className="relative mt-5 max-w-5xl cursor-crosshair overflow-hidden rounded-3xl border border-white/10"><img src={f.imageUrl} className="w-full"/><span className="absolute rounded-full bg-white px-3 py-1 text-xs font-bold text-black shadow-xl" style={{left:`${f.tagX}%`,top:`${f.tagY}%`}}>Etiqueta</span></div>}</Panel><Panel title="Fotos guardadas">{models.map((m:any)=><div key={m.id} className="mb-5 rounded-3xl bg-black/30 p-4"><div className="relative overflow-hidden rounded-3xl"><img src={m.imageUrl} className="w-full"/><span className="absolute rounded-full bg-white px-3 py-1 text-xs font-bold text-black" style={{left:`${m.tagX}%`,top:`${m.tagY}%`}}>{m.product?.name}</span></div><div className="mt-3 flex items-center justify-between"><div><b>{m.product?.name}</b><p className="text-sm text-white/45">{m.drop?.title} · X {m.tagX}% / Y {m.tagY}%</p></div><button className="rounded-full bg-white/10 px-4 py-2 text-sm" onClick={()=>setF(m)}>Editar</button></div></div>)}{!models.length&&<Empty text="Aún no has agregado fotos de modelos."/>}</Panel></div>}
+const popupActionOptions=[{value:'LINK',label:'Abrir enlace personalizado'},{value:'WHATSAPP',label:'Abrir WhatsApp'},{value:'CLOSE',label:'Cerrar popup'},{value:'HOME',label:'Ir al inicio'}];
+const popupBlank={id:'',name:'Nueva llegada',title:'NUEVAS LLEGADAS',subtitle:'Descubre los nuevos modelos de temporada',body:'Colecciones exclusivas por tiempo limitado.',imageUrl:'',backgroundColor:'#120d0a',overlayColor:'rgba(0,0,0,0.38)',titleColor:'#fff7ed',subtitleColor:'#fed7aa',bodyColor:'#ffffff',width:860,height:560,useImageDimensions:false,imageNaturalWidth:null,imageNaturalHeight:null,titleX:50,titleY:18,subtitleX:50,subtitleY:30,bodyX:50,bodyY:63,buttonsX:50,buttonsY:84,primaryLabel:'Ver mas',primaryAction:'LINK',primaryUrl:'/',primaryBgColor:'#ff6a00',primaryTextColor:'#111111',secondaryLabel:'No, gracias',secondaryAction:'CLOSE',secondaryUrl:'',secondaryBgColor:'transparent',secondaryTextColor:'#ffffff',delaySeconds:4,showOnce:true,isActive:false,startsAt:'',endsAt:''};
+function MarketingPopupsTab(){
+  const qc=useQueryClient();
+  const {data=[]}=useQuery({queryKey:['admin-popups'],queryFn:()=>api<any[]>('/admin/popups')});
+  const [f,setF]=useState<any>(popupBlank);
+  const save=useMutation({mutationFn:(payload:any)=>api(payload.id?`/admin/popups/${payload.id}`:'/admin/popups',{method:payload.id?'PATCH':'POST',body:JSON.stringify({...payload,id:undefined,startsAt:payload.startsAt||null,endsAt:payload.endsAt||null})}),onSuccess:()=>{qc.invalidateQueries({queryKey:['admin-popups']});qc.invalidateQueries({queryKey:['marketing-popup-active']});toast.success('Novedad emergente guardada');setF(popupBlank)},onError:(e:any)=>toast.error(e.message)});
+  const del=useMutation({mutationFn:(id:string)=>api('/admin/popups/'+id,{method:'DELETE'}),onSuccess:()=>{qc.invalidateQueries({queryKey:['admin-popups']});qc.invalidateQueries({queryKey:['marketing-popup-active']});toast.success('Novedad eliminada')}});
+  const toggleActive=useMutation({mutationFn:({id,isActive}:any)=>api(`/admin/popups/${id}`,{method:'PATCH',body:JSON.stringify({isActive})}),onSuccess:(_data,vars:any)=>{qc.invalidateQueries({queryKey:['admin-popups']});qc.invalidateQueries({queryKey:['marketing-popup-active']});toast.success(vars.isActive?'Novedad activada en tienda':'Novedad desactivada')}});
+  const testPopup=async(popup:any)=>{try{if(!popup.isActive)await toggleActive.mutateAsync({id:popup.id,isActive:true});localStorage.removeItem(`mb_marketing_popup_seen_${popup.id}`);window.open(`/?mb_popup_test=${popup.id}`,'_blank','noopener,noreferrer');}catch(e:any){toast.error(e?.message||'No se pudo preparar la prueba del popup');}};
+  const uploadImage=async(file?:File)=>{if(!file)return;const imageUrl=await readFile(file);const size=await getImageSize(imageUrl).catch(()=>null);setF((prev:any)=>({...prev,imageUrl,imageNaturalWidth:size?.width||prev.imageNaturalWidth,imageNaturalHeight:size?.height||prev.imageNaturalHeight,...(prev.useImageDimensions&&size?{width:size.width,height:size.height}:{})}));};
+  const edit=(popup:any)=>setF({...popup,startsAt:dateInputValue(popup.startsAt),endsAt:dateInputValue(popup.endsAt),primaryUrl:popup.primaryUrl||'',secondaryUrl:popup.secondaryUrl||'',secondaryLabel:popup.secondaryLabel||'',imageUrl:popup.imageUrl||''});
+  const previewStyle={backgroundColor:f.backgroundColor||'#120d0a',aspectRatio:`${Number(f.width||860)} / ${Number(f.height||560)}`} as any;
+  const position=(x:number,y:number)=>({left:`${x}%`,top:`${y}%`});
+  return <div className="space-y-6"><Toolbar title="Novedades emergentes" subtitle="Crea popups con imagen, texto movible, delay y botones con acciones personalizadas."/><Panel title={f.id?'Editar novedad':'Crear novedad'} action={<span className={`rounded-full px-4 py-2 text-xs font-black uppercase tracking-[.14em] ${f.isActive?'bg-green-500/15 text-green-200':'bg-white/10 text-white/55'}`}>{f.isActive?'Activa':'Borrador'}</span>}><div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(420px,.9fr)]"><div className="space-y-5"><div className="grid gap-4 md:grid-cols-2"><Field label="Nombre interno"><input className="input-dark" value={f.name} onChange={e=>setF({...f,name:e.target.value})}/></Field><Field label="Estado"><AdminSelect value={String(f.isActive)} onChange={value=>setF({...f,isActive:value==='true'})} options={[{value:'false',label:'Borrador / oculto'},{value:'true',label:'Activo en la tienda'}]}/></Field><Field label="Retraso para aparecer (segundos)"><input type="number" min={0} max={120} className="input-dark" value={f.delaySeconds} onChange={e=>setF({...f,delaySeconds:Number(e.target.value)})}/></Field><Field label="Mostrar al cliente"><AdminSelect value={String(f.showOnce)} onChange={value=>setF({...f,showOnce:value==='true'})} options={[{value:'true',label:'Una vez por navegador'},{value:'false',label:'Cada visita'}]}/></Field><Field label="Inicio opcional"><input type="datetime-local" className="input-dark" value={f.startsAt||''} onChange={e=>setF({...f,startsAt:e.target.value})}/></Field><Field label="Fin opcional"><input type="datetime-local" className="input-dark" value={f.endsAt||''} onChange={e=>setF({...f,endsAt:e.target.value})}/></Field></div><div className="grid gap-4 md:grid-cols-3"><Field label="Subir imagen / fondo"><input type="file" accept="image/*" className="input-dark" onChange={e=>uploadImage(e.target.files?.[0])}/></Field><Field label="Modo de dimensiones"><AdminSelect value={f.useImageDimensions?'image':'custom'} onChange={value=>{const useImage=value==='image';setF({...f,useImageDimensions:useImage,...(useImage&&f.imageNaturalWidth&&f.imageNaturalHeight?{width:f.imageNaturalWidth,height:f.imageNaturalHeight}:{})})}} options={[{value:'custom',label:'Dimensiones personalizadas'},{value:'image',label:'Usar dimensiones de la imagen'}]}/></Field><Field label="URL de imagen"><input className="input-dark" value={f.imageUrl||''} onChange={e=>setF({...f,imageUrl:e.target.value})}/></Field><Field label="Ancho popup px"><input type="number" className="input-dark" value={f.width} onChange={e=>setF({...f,width:Number(e.target.value)})}/></Field><Field label="Alto popup px"><input type="number" className="input-dark" value={f.height} onChange={e=>setF({...f,height:Number(e.target.value)})}/></Field><Field label="Capa oscura / overlay" hint="Ej: rgba(0,0,0,0.38)"><input className="input-dark" value={f.overlayColor} onChange={e=>setF({...f,overlayColor:e.target.value})}/></Field></div><div className="grid gap-4 md:grid-cols-3"><Field label="Titulo"><input className="input-dark" value={f.title} onChange={e=>setF({...f,title:e.target.value})}/></Field><Field label="Subtitulo"><input className="input-dark" value={f.subtitle||''} onChange={e=>setF({...f,subtitle:e.target.value})}/></Field><Field label="Texto extra"><input className="input-dark" value={f.body||''} onChange={e=>setF({...f,body:e.target.value})}/></Field></div><div className="grid gap-4 md:grid-cols-3"><Field label="Color fondo"><input type="color" className="input-dark h-12 p-1" value={f.backgroundColor} onChange={e=>setF({...f,backgroundColor:e.target.value})}/></Field><Field label="Color titulo"><input type="color" className="input-dark h-12 p-1" value={f.titleColor} onChange={e=>setF({...f,titleColor:e.target.value})}/></Field><Field label="Color subtitulo"><input type="color" className="input-dark h-12 p-1" value={f.subtitleColor} onChange={e=>setF({...f,subtitleColor:e.target.value})}/></Field><Field label="Color texto extra"><input type="color" className="input-dark h-12 p-1" value={f.bodyColor} onChange={e=>setF({...f,bodyColor:e.target.value})}/></Field></div><div className="grid gap-4 md:grid-cols-4"><Field label="Titulo X"><input type="range" min={0} max={100} value={f.titleX} onChange={e=>setF({...f,titleX:Number(e.target.value)})}/></Field><Field label="Titulo Y"><input type="range" min={0} max={100} value={f.titleY} onChange={e=>setF({...f,titleY:Number(e.target.value)})}/></Field><Field label="Subtitulo X"><input type="range" min={0} max={100} value={f.subtitleX} onChange={e=>setF({...f,subtitleX:Number(e.target.value)})}/></Field><Field label="Subtitulo Y"><input type="range" min={0} max={100} value={f.subtitleY} onChange={e=>setF({...f,subtitleY:Number(e.target.value)})}/></Field><Field label="Texto X"><input type="range" min={0} max={100} value={f.bodyX} onChange={e=>setF({...f,bodyX:Number(e.target.value)})}/></Field><Field label="Texto Y"><input type="range" min={0} max={100} value={f.bodyY} onChange={e=>setF({...f,bodyY:Number(e.target.value)})}/></Field><Field label="Botones X"><input type="range" min={0} max={100} value={f.buttonsX} onChange={e=>setF({...f,buttonsX:Number(e.target.value)})}/></Field><Field label="Botones Y"><input type="range" min={0} max={100} value={f.buttonsY} onChange={e=>setF({...f,buttonsY:Number(e.target.value)})}/></Field></div><div className="grid gap-4 md:grid-cols-2"><Panel title="Boton principal"><div className="grid gap-4 md:grid-cols-2"><Field label="Texto"><input className="input-dark" value={f.primaryLabel} onChange={e=>setF({...f,primaryLabel:e.target.value})}/></Field><Field label="Accion"><AdminSelect value={f.primaryAction} onChange={value=>setF({...f,primaryAction:value})} options={popupActionOptions}/></Field><Field label="Enlace / WhatsApp"><input className="input-dark" value={f.primaryUrl||''} onChange={e=>setF({...f,primaryUrl:e.target.value})}/></Field><Field label="Color boton"><input type="color" className="input-dark h-12 p-1" value={f.primaryBgColor} onChange={e=>setF({...f,primaryBgColor:e.target.value})}/></Field><Field label="Color texto"><input type="color" className="input-dark h-12 p-1" value={f.primaryTextColor} onChange={e=>setF({...f,primaryTextColor:e.target.value})}/></Field></div></Panel><Panel title="Boton secundario"><div className="grid gap-4 md:grid-cols-2"><Field label="Texto"><input className="input-dark" value={f.secondaryLabel||''} onChange={e=>setF({...f,secondaryLabel:e.target.value})}/></Field><Field label="Accion"><AdminSelect value={f.secondaryAction} onChange={value=>setF({...f,secondaryAction:value})} options={popupActionOptions}/></Field><Field label="Enlace opcional"><input className="input-dark" value={f.secondaryUrl||''} onChange={e=>setF({...f,secondaryUrl:e.target.value})}/></Field><Field label="Fondo boton"><input className="input-dark" value={f.secondaryBgColor} onChange={e=>setF({...f,secondaryBgColor:e.target.value})}/></Field><Field label="Color texto"><input type="color" className="input-dark h-12 p-1" value={f.secondaryTextColor} onChange={e=>setF({...f,secondaryTextColor:e.target.value})}/></Field></div></Panel></div><div className="flex flex-wrap gap-3"><button className="btn-ember justify-center" onClick={()=>save.mutate(f)}>{f.id?'Guardar cambios':'Crear novedad'}</button>{f.id&&<button className="btn-ghost justify-center" onClick={()=>setF(popupBlank)}>Cancelar edicion</button>}</div></div><div className="rounded-[1.6rem] border border-white/10 bg-black/30 p-4"><div className="mb-3 flex items-center justify-between gap-3"><b>Vista previa</b><span className="admin-muted text-xs">{f.width} x {f.height}px</span></div><div className="relative mx-auto w-full overflow-hidden rounded-[1.35rem] border border-orange-200/20 shadow-2xl" style={previewStyle}>{f.imageUrl&&<img src={f.imageUrl} className="absolute inset-0 h-full w-full object-cover" alt="Preview popup"/>}<div className="absolute inset-0" style={{background:f.overlayColor}}/><h3 className="absolute max-w-[86%] -translate-x-1/2 -translate-y-1/2 text-center text-[clamp(1.8rem,5vw,3.6rem)] font-black uppercase leading-[.95]" style={{...position(f.titleX,f.titleY),color:f.titleColor}}>{f.title}</h3>{f.subtitle&&<p className="absolute max-w-[80%] -translate-x-1/2 -translate-y-1/2 text-center text-xl font-extrabold" style={{...position(f.subtitleX,f.subtitleY),color:f.subtitleColor}}>{f.subtitle}</p>}{f.body&&<p className="absolute max-w-[78%] -translate-x-1/2 -translate-y-1/2 whitespace-pre-line text-center text-base font-bold" style={{...position(f.bodyX,f.bodyY),color:f.bodyColor}}>{f.body}</p>}<div className="absolute flex -translate-x-1/2 -translate-y-1/2 flex-wrap items-center justify-center gap-3" style={position(f.buttonsX,f.buttonsY)}><span className="rounded-xl px-5 py-3 text-xs font-black uppercase tracking-[.16em]" style={{background:f.primaryBgColor,color:f.primaryTextColor}}>{f.primaryLabel}</span>{f.secondaryLabel&&<span className="rounded-xl border border-white/20 px-4 py-2 text-xs font-bold" style={{background:f.secondaryBgColor,color:f.secondaryTextColor}}>{f.secondaryLabel}</span>}</div></div><p className="admin-muted mt-4 text-sm">La posicion se controla con los sliders. En movil el popup se ajusta al ancho disponible sin perder proporciones.</p></div></div></Panel><Panel title="Novedades guardadas">{data.map((popup:any)=><div key={popup.id} className="mb-3 grid gap-3 rounded-2xl bg-black/30 p-4 lg:grid-cols-[90px_1fr_auto]"><div className="h-20 overflow-hidden rounded-2xl bg-white/5">{popup.imageUrl?<img src={popup.imageUrl} className="h-full w-full object-cover"/>:<div className="grid h-full place-items-center text-xs text-white/35">Sin imagen</div>}</div><div><b>{popup.name}</b><p className="text-sm text-white/45">{popup.title} · aparece en {popup.delaySeconds}s · {popup.showOnce?'una vez por navegador':'cada visita'}</p><p className={popup.isActive?'text-sm text-green-200':'text-sm text-white/35'}>{popup.isActive?'Activo en tienda':'Oculto'}</p></div><div className="flex flex-wrap items-center gap-2"><button className="btn-ghost" onClick={()=>edit(popup)}>Editar</button><button className="btn-ghost" onClick={()=>toggleActive.mutate({id:popup.id,isActive:!popup.isActive})}>{popup.isActive?'Desactivar':'Activar'}</button><button className="btn-ghost" onClick={()=>testPopup(popup)}>Probar en tienda</button><button className="rounded-full bg-red-500/10 px-4 py-2 text-sm text-red-200" onClick={()=>{if(confirm('Eliminar esta novedad emergente?'))del.mutate(popup.id)}}>Eliminar</button></div></div>)}{!data.length&&<Empty text="Todavia no has creado novedades emergentes."/>}</Panel></div>
+}
+function ContentTab(){const qc=useQueryClient();const [q,setQ]=useState('');const [area,setArea]=useState('HOME');const areas=['HOME','NEWS','FOOTER_SUPPORT','FAQ','CONTACT','SHIPPING_INFO','ABOUT','PRIVACY','TERMS'];const labels:any={HOME:'Home',NEWS:'Novedades',FOOTER_SUPPORT:'Footer / soporte',PRIVACY:'Privacidad',TERMS:'Términos, cambios y devoluciones',FAQ:'Preguntas frecuentes',CONTACT:'Contacto',SHIPPING_INFO:'Página pública de envíos',ABOUT:'Sobre nosotros'};const {data=[]}=useQuery({queryKey:['admin-content'],queryFn:()=>api<any[]>('/admin/content')});const blank={id:'',area:'HOME',title:'',subtitle:'',body:'',url:'',imageUrl:'',sortOrder:0,isActive:true};const [f,setF]=useState<any>({...blank,area});const filtered=data.filter((b:any)=>b.area===area).filter((b:any)=>`${b.title} ${b.body||''}`.toLowerCase().includes(q.toLowerCase()));const save=useMutation({mutationFn:(p:any)=>api(p.id?`/admin/content/${p.id}`:'/admin/content',{method:p.id?'PATCH':'POST',body:JSON.stringify({...p,area,id:undefined})}),onSuccess:()=>{qc.invalidateQueries({queryKey:['admin-content']});toast.success('Contenido guardado');setF({...blank,area})}});const del=useMutation({mutationFn:(id:string)=>api('/admin/content/'+id,{method:'DELETE'}),onSuccess:()=>{qc.invalidateQueries({queryKey:['admin-content']});toast.success('Bloque eliminado')}});return <div><Toolbar title="Contenido editable" subtitle="Controla Home, novedades, footer, FAQ, contacto, página de envíos, nosotros, privacidad y términos." search={q} setSearch={setQ}/><div className="mb-6 grid gap-3 md:grid-cols-3 xl:grid-cols-4">{areas.map(a=><button key={a} onClick={()=>{setArea(a);setF({...blank,area:a})}} className={`rounded-3xl border p-5 text-left ${area===a?'border-orange-400 bg-orange-500 text-black':'border-white/10 bg-white/[.035]'}`}><b>{labels[a]}</b><p className="text-sm opacity-70">{data.filter((x:any)=>x.area===a).length} bloques</p></button>)}</div>{area==='SHIPPING_INFO'&&<div className="mb-5 rounded-2xl border border-blue-400/20 bg-blue-500/10 p-4 text-sm text-blue-50">Aquí editas los textos de la página pública. Las ciudades, provincias y precios se gestionan en <b>Zonas y tarifas de envío</b>.</div>}<Panel title={`${f.id?'Editando bloque':'Crear bloque'} · ${labels[area]}`}><div className="grid gap-4 md:grid-cols-3"><Field label="Título"><input className="input-dark" value={f.title} onChange={e=>setF({...f,title:e.target.value})}/></Field><Field label="Orden"><input type="number" className="input-dark" value={f.sortOrder} onChange={e=>setF({...f,sortOrder:Number(e.target.value)})}/></Field><Field label="Estado"><AdminSelect value={String(f.isActive)} onChange={value=>setF({...f,isActive:value==="true"})} options={[{value:"true",label:"Visible"},{value:"false",label:"Oculto"}]}/></Field><Field label="Subtítulo"><input className="input-dark" value={f.subtitle||''} onChange={e=>setF({...f,subtitle:e.target.value})}/></Field><Field label="URL"><input className="input-dark" value={f.url||''} onChange={e=>setF({...f,url:e.target.value})}/></Field><Field label="Imagen"><input className="input-dark" type="file" accept="image/*" onChange={async e=>{const file=e.target.files?.[0];if(file)setF({...f,imageUrl:await readFile(file)})}}/></Field><div className="md:col-span-3"><Field label="Contenido"><textarea className="input-dark min-h-[120px]" value={f.body||''} onChange={e=>setF({...f,body:e.target.value})}/></Field></div><button className="btn-ember justify-center max-w-xs" onClick={()=>save.mutate(f)}>{f.id?'Guardar cambios':'Crear bloque'}</button>{f.id&&<button className="btn-ghost justify-center max-w-xs" onClick={()=>setF({...blank,area})}>Cancelar edición</button>}</div></Panel><div className="mt-6 grid gap-3">{filtered.map((b:any)=><div key={b.id} className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-white/10 bg-black/30 p-4"><div><b>{b.title}</b><p className="text-sm text-white/45">{labels[b.area]} · orden {b.sortOrder} · {b.isActive?'visible':'oculto'}</p></div><div className="flex gap-2"><button className="rounded-full bg-white/10 px-4 py-2 text-sm" onClick={()=>setF(b)}>Editar</button><button className="rounded-full bg-red-500/10 px-4 py-2 text-sm text-red-200" onClick={()=>del.mutate(b.id)}>Eliminar</button></div></div>)}{!filtered.length&&<Empty text="No hay bloques en esta área."/>}</div></div>}
+function ShippingTabV2(){
+  const qc=useQueryClient();
+  const [q,setQ]=useState('');
+  const {data=[]}=useQuery({queryKey:['admin-shipping'],queryFn:()=>api<any[]>('/admin/shipping')});
+  const blank={id:'',country:'RD',province:'',city:'',price:0,currency:'DOP',requiresConfirmation:false,active:true};
+  const [f,setF]=useState<any>(blank);
+  const provinceValues=f.country==='RD'?DOMINICAN_PROVINCES:[...US_STATES];
+  const municipalityValues=f.country==='RD'?municipalitiesFor(f.province):[];
+  const provinceOptions=[...(!provinceValues.includes(f.province)&&f.province?[f.province]:[]),...provinceValues].map(value=>({value,label:value,searchText:value}));
+  const municipalityOptions=f.province?[
+    {value:'__ALL_PROVINCE__',label:'Toda la provincia',searchText:'toda provincia general'},
+    ...[...(!municipalityValues.includes(f.city)&&f.city&&f.city!=='__ALL_PROVINCE__'?[f.city]:[]),...municipalityValues].map(value=>({value,label:value,searchText:value})),
+  ]:[];
+  const save=useMutation({
+    mutationFn:(p:any)=>api(p.id?`/admin/shipping/${p.id}`:'/admin/shipping',{method:p.id?'PATCH':'POST',body:JSON.stringify({...p,city:p.city==='__ALL_PROVINCE__'?null:p.city,id:undefined})}),
+    onSuccess:()=>{qc.invalidateQueries({queryKey:['admin-shipping']});qc.invalidateQueries({queryKey:['public-shipping-zones']});toast.success('Zona y tarifa guardadas');setF(blank)},
+    onError:(error:any)=>toast.error(error.message||'No se pudo guardar la zona.'),
+  });
+  const del=useMutation({
+    mutationFn:(id:string)=>api('/admin/shipping/'+id,{method:'DELETE'}),
+    onSuccess:()=>{qc.invalidateQueries({queryKey:['admin-shipping']});qc.invalidateQueries({queryKey:['public-shipping-zones']});toast.success('Zona eliminada')},
+    onError:(error:any)=>toast.error(error.message||'No se pudo eliminar la zona.'),
+  });
+  const submit=()=>{
+    if(!f.province)return toast.error(`Selecciona ${f.country==='RD'?'una provincia':'un estado'}.`);
+    if(!f.city)return toast.error(`Selecciona ${f.country==='RD'?'un municipio o toda la provincia':'una ciudad'}.`);
+    save.mutate(f);
+  };
+  const filtered=data.filter((zone:any)=>`${zone.country} ${zone.province||''} ${zone.city||''}`.toLowerCase().includes(q.toLowerCase()));
+  return <div>
+    <Toolbar title="Zonas y tarifas de envío" subtitle="Relaciona cada municipio con su provincia. Las zonas activas aparecen automáticamente en la página pública de Envíos." search={q} setSearch={setQ}/>
+    <Panel title={f.id?'Editar zona de envío':'Crear zona de envío'}>
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <Field label="País"><AdminSelect value={f.country} onChange={country=>setF({...f,country,province:'',city:'',currency:country==='US'?'USD':'DOP'})} options={[{value:'RD',label:'República Dominicana'},{value:'US',label:'Estados Unidos'}]}/></Field>
+        <Field label={f.country==='RD'?'Provincia':'Estado'} hint={f.country==='RD'?'División territorial principal de República Dominicana.':'Estado de destino.'}><AdminSelect searchable searchPlaceholder={f.country==='RD'?'Buscar provincia...':'Buscar estado...'} value={f.province} onChange={province=>setF({...f,province,city:''})} options={provinceOptions} placeholder={`Selecciona ${f.country==='RD'?'una provincia':'un estado'}`}/></Field>
+        <Field label={f.country==='RD'?'Municipio':'Ciudad'} hint={f.country==='RD'?'Solo aparecen municipios de la provincia seleccionada; también puedes aplicar una tarifa general.':'Escribe la ciudad de destino.'}>{f.country==='RD'?<AdminSelect searchable searchPlaceholder="Buscar municipio..." value={f.city} onChange={city=>setF({...f,city})} options={municipalityOptions} placeholder={f.province?'Selecciona un municipio':'Primero selecciona una provincia'}/>:<input className="input-dark" value={f.city||''} onChange={event=>setF({...f,city:event.target.value})} placeholder="Ej. Miami"/>}</Field>
+        <Field label="Precio de envío"><input type="number" min="0" step="0.01" className="input-dark" value={f.price} onChange={event=>setF({...f,price:Number(event.target.value)})}/></Field>
+        <Field label="Moneda"><AdminSelect value={f.currency} onChange={currency=>setF({...f,currency})} options={[{value:'DOP',label:'RD$ / DOP'},{value:'USD',label:'US$ / USD'}]}/></Field>
+        <label className="admin-choice self-end"><input type="checkbox" checked={f.requiresConfirmation} onChange={event=>setF({...f,requiresConfirmation:event.target.checked})}/><span><b>Requiere confirmación</b><small>La tarifa se coordina antes de finalizar.</small></span></label>
+        <label className="admin-choice self-end"><input type="checkbox" checked={f.active} onChange={event=>setF({...f,active:event.target.checked})}/><span><b>Activo y visible</b><small>Se mostrará en la página pública.</small></span></label>
+        <button className="btn-ember justify-center self-end" onClick={submit} disabled={save.isPending}>{save.isPending?'Guardando...':f.id?'Guardar cambios':'Crear zona'}</button>
+      </div>
+    </Panel>
+    <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+      {filtered.map((zone:any)=><article key={zone.id} className="admin-shipping-card">
+        <div className="admin-shipping-card-head"><span><Truck size={18}/></span><small>{zone.country==='RD'?'República Dominicana':'Estados Unidos'}</small></div>
+        <h3>{zone.city||(zone.country==='RD'?'Toda la provincia':'Destino general')}</h3>
+        <p>{zone.country==='RD'?(zone.city?'Municipio de':'Tarifa general para'):'Ciudad en'} <b>{zone.province||'ubicación no definida'}</b></p>
+        <div className="admin-shipping-card-meta"><span>{zone.requiresConfirmation?'Tarifa por confirmar':'Tarifa fija'}</span><span className={zone.active?'is-active':'is-hidden'}>{zone.active?'Visible':'Oculto'}</span></div>
+        <strong>{zone.requiresConfirmation&&!zone.price?'Por confirmar':money(zone.price,zone.currency==='USD'?'US$':'RD$')}</strong>
+        <div className="mt-4 flex gap-2"><button className="btn-ghost" onClick={()=>setF({...zone,city:zone.city||'__ALL_PROVINCE__'})}>Editar</button><button className="rounded-full bg-red-500/10 px-4 py-2 text-sm text-red-200" onClick={()=>del.mutate(zone.id)}>Eliminar</button></div>
+      </article>)}
+      {!filtered.length&&<Empty text={data.length?'No hay zonas que coincidan con la búsqueda.':'Aún no has creado zonas de envío.'}/>}
+    </div>
+  </div>;
+}
+function UsersTab(){const qc=useQueryClient();const [q,setQ]=useState('');const [role,setRole]=useState('');const [blocked,setBlocked]=useState('');const [show,setShow]=useState(false);const {data=[]}=useQuery({queryKey:['admin-users',q,role,blocked],queryFn:()=>api<any[]>(`/admin/users?q=${encodeURIComponent(q)}&role=${encodeURIComponent(role)}&blocked=${encodeURIComponent(blocked)}`)});const blank={name:'',email:'',password:'',role:'CUSTOMER',isVerified:true};const [f,setF]=useState<any>(blank);const create=useMutation({mutationFn:(p:any)=>api('/admin/users',{method:'POST',body:JSON.stringify(p)}),onSuccess:()=>{qc.invalidateQueries({queryKey:['admin-users']});toast.success('Usuario creado');setF(blank)},onError:(e:any)=>toast.error(e.message)});const update=useMutation({mutationFn:({id,payload}:any)=>api('/admin/users/'+id,{method:'PATCH',body:JSON.stringify(payload)}),onSuccess:()=>{qc.invalidateQueries({queryKey:['admin-users']});toast.success('Usuario actualizado')}});return <div><Toolbar title="Usuarios" subtitle="Crea clientes o administradores, bloquea cuentas y gestiona roles." search={q} setSearch={setQ}><Field label="Rol"><AdminSelect className="min-w-[170px]" value={role} onChange={setRole} options={[{value:"",label:"Todos"},{value:"CUSTOMER",label:"Clientes"},{value:"ADMIN",label:"Administradores"}]}/></Field><Field label="Estado"><AdminSelect className="min-w-[170px]" value={blocked} onChange={setBlocked} options={[{value:'',label:'Todos'},{value:'false',label:'Activos'},{value:'true',label:'Bloqueados'}]}/></Field></Toolbar><Panel title="Crear usuario"><div className="grid gap-4 md:grid-cols-5"><Field label="Nombre"><input className="input-dark" value={f.name} onChange={e=>setF({...f,name:e.target.value})}/></Field><Field label="Correo"><input className="input-dark" value={f.email} onChange={e=>setF({...f,email:e.target.value})}/></Field><Field label="Contraseña"><input className="input-dark" type={show?'text':'password'} value={f.password} onChange={e=>setF({...f,password:e.target.value})}/></Field><Field label="Rol"><AdminSelect value={f.role} onChange={value=>setF({...f,role:value})} options={[{value:'CUSTOMER',label:'Cliente'},{value:'ADMIN',label:'Administrador'}]}/></Field><button className="btn-ember justify-center self-end" onClick={()=>create.mutate(f)}>Crear usuario</button></div><button className="mt-3 text-sm text-white/45" onClick={()=>setShow(!show)}>{show?'Ocultar contraseña':'Ver contraseña'}</button></Panel><Panel title="Usuarios registrados">{data.map((u:any)=><div key={u.id} className="mb-3 grid gap-3 rounded-2xl bg-black/30 p-4 xl:grid-cols-[1fr_auto_auto_auto]"><div><b>{u.name}</b><p className="text-sm text-white/45">{u.email} · {u._count?.orders||0} pedidos · {u.blocked?'bloqueado':'activo'}</p>{u.lockedUntil&&<p className="text-xs text-orange-200">Bloqueo temporal hasta {new Date(u.lockedUntil).toLocaleString('es-DO')}</p>}</div><AdminSelect value={u.role} onChange={value=>update.mutate({id:u.id,payload:{role:value}})} options={[{value:'CUSTOMER',label:'Cliente'},{value:'ADMIN',label:'Administrador'}]}/><button className="btn-ghost" onClick={()=>update.mutate({id:u.id,payload:{blocked:!u.blocked,blockedReason:u.blocked?null:'Tu cuenta ha sido bloqueada. Contacta soporte.'}})}>{u.blocked?'Desbloquear':'Bloquear'}</button><button className="btn-ghost" onClick={()=>update.mutate({id:u.id,payload:{failedLoginAttempts:0,lockedUntil:null}})}>Limpiar intentos</button></div>)}{!data.length&&<Empty text="No hay usuarios todavía."/>}</Panel></div>}
+function FinanceTab(){const qc=useQueryClient();const {data}=useQuery({queryKey:['admin-dashboard'],queryFn:()=>api<any>('/admin/dashboard')});const {data:products=[]}=useQuery({queryKey:['admin-products-finance'],queryFn:()=>api<any[]>('/admin/products')});const [edit,setEdit]=useState<any|null>(null);const rows=products.map((p:any)=>{const profit=Number(p.price||0)-Number(p.cost||0);const margin=p.price?Math.round((profit/Number(p.price))*100):0;return{...p,profit,margin}});const save=useMutation({mutationFn:(p:any)=>api('/admin/products/'+p.id,{method:'PATCH',body:JSON.stringify({price:Number(p.price),priceUsd:Number(p.priceUsd),cost:Number(p.cost)})}),onSuccess:()=>{qc.invalidateQueries({queryKey:['admin-products-finance']});qc.invalidateQueries({queryKey:['admin-dashboard']});toast.success('Costos actualizados');setEdit(null)}});return <div className="space-y-6"><div className="grid gap-4 md:grid-cols-3"><Stat title="Ingresos" value={money(data?.finance?.totalRevenue||0)} detail="Total vendido"/><Stat title="Costos" value={money(data?.finance?.totalCost||0)} detail="Costo estimado"/><Stat title="Ganancia" value={money(data?.finance?.totalProfit||0)} detail={`${data?.finance?.margin||0}% margen`}/></div><Panel title="Gráfico circular de margen"><Donut items={[{label:'Ganancia estimada',value:Math.max(data?.finance?.totalProfit||0,0),color:'#22c55e'},{label:'Costos',value:data?.finance?.totalCost||0,color:'#ef4444'}]}/></Panel>{edit&&<Panel title={`Editar costos · ${edit.name}`}><div className="grid gap-4 md:grid-cols-4"><Field label="Precio venta RD$"><input className="input-dark" type="number" value={edit.price} onChange={e=>setEdit({...edit,price:Number(e.target.value)})}/></Field><Field label="Precio venta US$"><input className="input-dark" type="number" value={edit.priceUsd} onChange={e=>setEdit({...edit,priceUsd:Number(e.target.value)})}/></Field><Field label="Costo compra RD$"><input className="input-dark" type="number" value={edit.cost} onChange={e=>setEdit({...edit,cost:Number(e.target.value)})}/></Field><button className="btn-ember justify-center self-end" onClick={()=>save.mutate(edit)}>Guardar</button></div></Panel>}<Panel title="Margen por producto">{rows.map((p:any)=><div key={p.id} className="mb-4 rounded-2xl bg-black/30 p-4"><div className="mb-2 flex flex-wrap justify-between gap-2"><div><b>{p.name}</b><p className="text-sm text-white/45">Costo {money(p.cost)} · Venta RD {money(p.price)} · Venta US {money(p.priceUsd,'US$')}</p></div><div className="text-right"><span className="font-bold text-orange-200">{p.margin}% · {money(p.profit)}</span><button className="ml-3 rounded-full bg-white/10 px-4 py-2 text-sm" onClick={()=>setEdit(p)}>Editar costos</button></div></div></div>)}{!rows.length&&<Empty text="Crea productos para calcular márgenes."/>}</Panel><Panel title="Recomendaciones profesionales">{data?.aiRecommendations?.length?data.aiRecommendations.map((r:string,i:number)=><div key={i} className="mb-3 rounded-2xl bg-white/[.04] p-4 text-sm text-white/70">{r}</div>):<Empty text="Cuando tengas productos, vistas y pedidos aparecerán recomendaciones."/>}</Panel></div>}
+function SettingsTab({data}:any){const qc=useQueryClient();const setS=useMutation({mutationFn:({key,value}:any)=>api('/admin/settings/'+key,{method:'PUT',body:JSON.stringify({value})}),onSuccess:()=>{qc.invalidateQueries({queryKey:['admin-dashboard']});qc.invalidateQueries({queryKey:['site-state']});toast.success('Control del sitio actualizado')},onError:(e:any)=>toast.error(e.message)});const mode=data.settings?.storeMode||'SHOP';const toggles=['showModels','showDrops','showNews','showCategories','showFeatured','showShippingInfo','showFooter'];const labels:any={showModels:'Modelos / Lookbook',showDrops:'Drops',showNews:'Novedades',showCategories:'Categorías',showFeatured:'Productos destacados',showShippingInfo:'Página pública de envíos',showFooter:'Pie de página / footer'};const modeInfo:any={SHOP:{label:'Tienda',desc:'La tienda pública queda abierta con las secciones que actives.',preview:'Menú + home + catálogo + secciones visibles'},DROP:{label:'Drop',desc:'Por defecto el usuario solo verá el contador del drop. El menú y secciones quedan ocultos automáticamente.',preview:'Pantalla completa de drop + contador'},MAINTENANCE:{label:'Mantenimiento',desc:'El usuario solo verá el aviso de mantenimiento. El admin sigue disponible.',preview:'Pantalla completa de mantenimiento'}};return <div className="space-y-6"><Panel title="Modo del sitio" action={<a href="/" target="_blank" className="btn-ghost inline-flex"><Eye size={16}/> Entrar a tienda</a>}><div className="grid gap-4 md:grid-cols-3">{['SHOP','DROP','MAINTENANCE'].map(m=>{const selected=mode===m;return <button key={m} onClick={()=>setS.mutate({key:'storeMode',value:m})} className={`rounded-3xl border p-5 text-left transition ${selected?'border-orange-400 bg-orange-500 text-black shadow-[0_0_35px_rgba(249,115,22,.22)]':'border-white/10 bg-white/[.035] hover:bg-white/[.06]'}`}><div className="mb-3 flex items-center justify-between gap-3"><b className="text-lg">{modeInfo[m].label}</b>{selected&&<span className="rounded-full bg-black/20 px-3 py-1 text-xs font-bold">Activo</span>}</div><p className="min-h-[44px] text-sm opacity-75">{modeInfo[m].desc}</p><div className="mt-4 overflow-hidden rounded-2xl border border-current/20 bg-black/20 p-3"><div className="grid h-24 place-items-center rounded-xl border border-current/10 bg-black/20 text-center text-xs opacity-80">{modeInfo[m].preview}</div></div></button>})}</div><p className="mt-4 rounded-2xl border border-white/10 bg-black/25 p-4 text-sm text-white/50">Al elegir Drop o Mantenimiento, el sistema oculta automáticamente menú y secciones públicas. Puedes reactivar secciones solo si quieres una excepción.</p></Panel><Panel title="Secciones visibles en tienda"><div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">{toggles.map(k=>{const active=(data.settings?.[k]??'true')==='true';return <button key={k} onClick={()=>setS.mutate({key:k,value:String(!active)})} className={`rounded-3xl border p-5 text-left transition ${active?'border-green-400/40 bg-green-500/10':'border-white/10 bg-white/[.035]'}`}><b>{labels[k]}</b><p className="text-sm text-white/45">{active?'Visible':'Oculto'}</p></button>})}</div></Panel></div>}
+function SupportTab(){const qc=useQueryClient();const [q,setQ]=useState('');const [status,setStatus]=useState('');const [reply,setReply]=useState<Record<string,string>>({});const {data=[]}=useQuery({queryKey:['admin-tickets',q,status],queryFn:()=>api<any[]>(`/admin/tickets?q=${encodeURIComponent(q)}&status=${encodeURIComponent(status)}`)});const update=useMutation({mutationFn:({id,payload}:any)=>api('/admin/tickets/'+id,{method:'PATCH',body:JSON.stringify(payload)}),onSuccess:()=>{qc.invalidateQueries({queryKey:['admin-tickets']});toast.success('Ticket actualizado')}});const send=useMutation({mutationFn:({id,body}:any)=>api('/admin/tickets/'+id+'/messages',{method:'POST',body:JSON.stringify({body,status:'ANSWERED'})}),onSuccess:()=>{qc.invalidateQueries({queryKey:['admin-tickets']});setReply({});toast.success('Respuesta enviada')}});return <div><Toolbar title="Ayuda y tickets" subtitle="Responde solicitudes de clientes según el permiso del rol." search={q} setSearch={setQ}><Field label="Estado"><AdminSelect className="min-w-[210px]" value={status} onChange={setStatus} options={[{value:"",label:"Todos"},...["OPEN","WAITING_CUSTOMER","ANSWERED","CLOSED"].map(s=>({value:s,label:s}))]}/></Field></Toolbar><div className="space-y-4">{data.map((t:any)=><div key={t.id} className="rounded-3xl border border-white/10 bg-white/[.035] p-5"><div className="flex flex-wrap justify-between gap-4"><div><b>{t.subject}</b><p className="text-sm text-white/45">{t.user?.name} · {t.user?.email} · {t.category} · contacto {t.preferredContact}</p><p className="text-xs text-white/35">{t.contactPhone||t.user?.phone||''} {t.contactWhatsapp||t.user?.whatsapp||''}</p></div><AdminSelect className="max-w-[220px]" value={t.status} onChange={value=>update.mutate({id:t.id,payload:{status:value}})} options={["OPEN","WAITING_CUSTOMER","ANSWERED","CLOSED"].map(s=>({value:s,label:s}))}/></div><div className="mt-4 space-y-2">{t.messages?.map((m:any)=><div key={m.id} className={`rounded-2xl px-4 py-3 text-sm ${m.fromStaff?'bg-orange-500/10 text-orange-50':'bg-black/30 text-white/65'}`}><p>{m.body}</p><span className="text-xs text-white/35">{m.author?.name||'Cliente'} · {new Date(m.createdAt).toLocaleString('es-DO')}</span></div>)}</div><div className="mt-4 flex gap-2"><input className="input-dark" value={reply[t.id]||''} onChange={e=>setReply({...reply,[t.id]:e.target.value})} placeholder="Responder al cliente"/><button className="btn-ember" onClick={()=>send.mutate({id:t.id,body:reply[t.id]||''})}>Responder</button></div></div>)}{!data.length&&<Empty text="No hay tickets con esos filtros."/>}</div></div>}
+function RolesTab(){const qc=useQueryClient();const {data:permissions=[]}=useQuery({queryKey:['admin-permissions'],queryFn:()=>api<any[]>('/admin/permissions')});const {data:roles=[]}=useQuery({queryKey:['admin-roles'],queryFn:()=>api<any[]>('/admin/roles')});const blank={id:'',name:'',slug:'',description:'',active:true,permissions:[] as string[]};const [f,setF]=useState<any>(blank);const save=useMutation({mutationFn:(p:any)=>api(p.id?`/admin/roles/${p.id}`:'/admin/roles',{method:p.id?'PATCH':'POST',body:JSON.stringify({...p,id:undefined})}),onSuccess:()=>{qc.invalidateQueries({queryKey:['admin-roles']});toast.success('Rol guardado');setF(blank)},onError:(e:any)=>toast.error(e.message)});const del=useMutation({mutationFn:(id:string)=>api('/admin/roles/'+id,{method:'DELETE'}),onSuccess:()=>{qc.invalidateQueries({queryKey:['admin-roles']});toast.success('Rol eliminado')},onError:(e:any)=>toast.error(e.message)});const toggle=(key:string)=>setF((prev:any)=>({...prev,permissions:prev.permissions.includes(key)?prev.permissions.filter((p:string)=>p!==key):[...prev.permissions,key]}));return <div className="space-y-6"><Panel title={f.id?'Editar rol':'Crear rol'}><div className="grid gap-4 md:grid-cols-3"><Field label="Nombre del rol"><input className="input-dark" value={f.name} onChange={e=>setF({...f,name:e.target.value,slug:f.slug||slugify(e.target.value).toUpperCase().replace(/-/g,'_')})}/></Field><Field label="Identificador"><input className="input-dark" value={f.slug} onChange={e=>setF({...f,slug:e.target.value.toUpperCase().replace(/[^A-Z0-9_]+/g,'_')})}/></Field><Field label="Estado"><AdminSelect value={String(f.active)} onChange={value=>setF({...f,active:value==="true"})} options={[{value:"true",label:"Activo"},{value:"false",label:"Inactivo"}]}/></Field><div className="md:col-span-3"><Field label="Descripción"><input className="input-dark" value={f.description||''} onChange={e=>setF({...f,description:e.target.value})}/></Field></div></div><div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-3">{permissions.map((p:any)=><label key={p.key} className={`rounded-2xl border p-4 text-sm ${f.permissions.includes(p.key)?'border-orange-400 bg-orange-500/10':'border-white/10 bg-black/20'}`}><input type="checkbox" className="mr-2" checked={f.permissions.includes(p.key)} onChange={()=>toggle(p.key)}/><b>{p.label}</b><p className="mt-1 text-xs text-white/45">{p.description}</p></label>)}</div><div className="mt-5 flex gap-2"><button className="btn-ember" onClick={()=>save.mutate(f)}>Guardar rol</button>{f.id&&<button className="btn-ghost" onClick={()=>setF(blank)}>Cancelar</button>}</div></Panel><Panel title="Roles existentes">{roles.map((r:any)=><div key={r.id} className="mb-3 flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-black/30 p-4"><div><b>{r.name}</b><p className="text-sm text-white/45">{r.slug} · {r.permissions?.length||0} permisos · {r.active?'activo':'inactivo'}</p></div><div className="flex gap-2"><button className="btn-ghost" onClick={()=>setF({id:r.id,name:r.name,slug:r.slug,description:r.description||'',active:r.active,permissions:r.permissions?.map((p:any)=>p.permission)||[]})}>Editar</button><button className="rounded-full bg-red-500/10 px-4 py-2 text-sm text-red-200" onClick={()=>del.mutate(r.id)}>Eliminar</button></div></div>)}</Panel></div>}
+function ReportsTab(){const {data,isLoading}=useQuery({queryKey:['admin-reports'],queryFn:()=>api<any>('/admin/reports')});if(isLoading||!data)return <p className="text-white/45">Cargando reportes...</p>;return <div className="space-y-6"><Toolbar title="Reportes" subtitle="Ventas, pagos, cupones e inventario en una vista operativa."/><div className="grid gap-4 md:grid-cols-4"><Stat title="Ingresos" value={money(data.summary?.revenue||0)} detail="Pedidos no cancelados"/><Stat title="Descuentos" value={money(data.summary?.discount||0)} detail="Cupones aplicados"/><Stat title="Envios" value={money(data.summary?.shipping||0)} detail="Tarifas cobradas"/><Stat title="Stock bajo" value={data.summary?.lowStock||0} detail="Productos por debajo del umbral"/></div><div className="grid gap-6 xl:grid-cols-2"><Panel title="Pedidos por estado">{Object.entries(data.statusCounts||{}).map(([k,v]:any)=><div key={k} className="mb-2 flex justify-between rounded-2xl bg-black/30 px-4 py-3"><span>{statusLabels[k]||k}</span><b>{v}</b></div>)}</Panel><Panel title="Productos mas vendidos">{data.topProducts?.map((p:any)=><div key={p.id} className="mb-2 flex justify-between rounded-2xl bg-black/30 px-4 py-3"><span>{p.name}</span><b>{p.quantity} uds · {money(p.revenue)}</b></div>)}{!data.topProducts?.length&&<Empty text="Aun no hay ventas para ordenar productos."/>}</Panel><Panel title="Stock bajo">{data.lowStock?.map((p:any)=><div key={p.id} className="mb-2 flex justify-between rounded-2xl bg-black/30 px-4 py-3"><span>{p.name}</span><b>{p.stock} disponibles</b></div>)}{!data.lowStock?.length&&<Empty text="No hay productos con stock bajo."/>}</Panel><Panel title="Pagos">{Object.entries(data.paymentCounts||{}).map(([k,v]:any)=><div key={k} className="mb-2 flex justify-between rounded-2xl bg-black/30 px-4 py-3"><span>{k}</span><b>{v}</b></div>)}</Panel></div></div>}
+function CouponsTab(){const qc=useQueryClient();const {data=[]}=useQuery({queryKey:['admin-coupons'],queryFn:()=>api<any[]>('/admin/coupons')});const blank={id:'',code:'',type:'PERCENT',percent:0,amount:0,minSubtotal:0,maxUses:'',active:true,expiresAt:''};const [f,setF]=useState<any>(blank);const save=useMutation({mutationFn:(p:any)=>api(p.id?`/admin/coupons/${p.id}`:'/admin/coupons',{method:p.id?'PATCH':'POST',body:JSON.stringify({...p,id:undefined,maxUses:p.maxUses?Number(p.maxUses):null,expiresAt:p.expiresAt||null})}),onSuccess:()=>{qc.invalidateQueries({queryKey:['admin-coupons']});toast.success('Cupon guardado');setF(blank)},onError:(e:any)=>toast.error(e.message)});const del=useMutation({mutationFn:(id:string)=>api('/admin/coupons/'+id,{method:'DELETE'}),onSuccess:()=>{qc.invalidateQueries({queryKey:['admin-coupons']});toast.success('Cupon eliminado o desactivado')}});return <div className="space-y-6"><Toolbar title="Cupones" subtitle="Crea descuentos por porcentaje o monto fijo para checkout."/><Panel title={f.id?'Editar cupon':'Crear cupon'}><div className="grid gap-4 md:grid-cols-4"><Field label="Codigo"><input className="input-dark uppercase" value={f.code} onChange={e=>setF({...f,code:e.target.value.toUpperCase()})}/></Field><Field label="Tipo"><AdminSelect value={f.type} onChange={value=>setF({...f,type:value})} options={[{value:"PERCENT",label:"Porcentaje"},{value:"AMOUNT",label:"Monto fijo"}]}/></Field><Field label="Porcentaje"><input type="number" className="input-dark" value={f.percent} onChange={e=>setF({...f,percent:Number(e.target.value)})}/></Field><Field label="Monto RD$"><input type="number" className="input-dark" value={f.amount} onChange={e=>setF({...f,amount:Number(e.target.value)})}/></Field><Field label="Subtotal minimo RD$"><input type="number" className="input-dark" value={f.minSubtotal} onChange={e=>setF({...f,minSubtotal:Number(e.target.value)})}/></Field><Field label="Maximo de usos"><input type="number" className="input-dark" value={f.maxUses} onChange={e=>setF({...f,maxUses:e.target.value})}/></Field><Field label="Expira"><input type="date" className="input-dark" value={f.expiresAt} onChange={e=>setF({...f,expiresAt:e.target.value})}/></Field><Field label="Estado"><AdminSelect value={String(f.active)} onChange={value=>setF({...f,active:value==="true"})} options={[{value:"true",label:"Activo"},{value:"false",label:"Inactivo"}]}/></Field><button className="btn-ember justify-center md:col-span-2" onClick={()=>save.mutate(f)}>Guardar cupon</button>{f.id&&<button className="btn-ghost justify-center md:col-span-2" onClick={()=>setF(blank)}>Cancelar</button>}</div></Panel><Panel title="Cupones existentes">{data.map((c:any)=><div key={c.id} className="mb-3 flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-black/30 p-4"><div><b>{c.code}</b><p className="text-sm text-white/45">{c.type==='PERCENT'?`${c.percent}%`:money(c.amount)} · minimo {money(c.minSubtotal)} · usos {c.usedCount}{c.maxUses?`/${c.maxUses}`:''} · {c.active?'activo':'inactivo'}</p></div><div className="flex gap-2"><button className="btn-ghost" onClick={()=>setF({...c,maxUses:c.maxUses||'',expiresAt:c.expiresAt?String(c.expiresAt).slice(0,10):''})}>Editar</button><button className="rounded-full bg-red-500/10 px-4 py-2 text-sm text-red-200" onClick={()=>del.mutate(c.id)}>Eliminar</button></div></div>)}{!data.length&&<Empty text="Aun no hay cupones."/>}</Panel></div>}
+function InventoryTab(){
+  const qc=useQueryClient();
+  const {data:products=[]}=useQuery({queryKey:['admin-products-inventory'],queryFn:()=>api<any[]>('/admin/products')});
+  const {data:movements=[]}=useQuery({queryKey:['admin-inventory-movements'],queryFn:()=>api<any[]>('/admin/inventory/movements')});
+  const [f,setF]=useState({productId:'',variantId:'',quantity:0,reason:'Ajuste manual'});
+  const selectedProduct=products.find((p:any)=>p.id===(f.productId||products[0]?.id));
+  const variants=Array.isArray(selectedProduct?.variants)?selectedProduct.variants.filter((variant:any)=>variant.active):[];
+  const adjust=useMutation({mutationFn:()=>api('/admin/inventory/adjust',{method:'POST',body:JSON.stringify({...f,productId:f.productId||products[0]?.id,variantId:f.variantId||undefined})}),onSuccess:()=>{qc.invalidateQueries({queryKey:['admin-products-inventory']});qc.invalidateQueries({queryKey:['admin-inventory-movements']});qc.invalidateQueries({queryKey:['admin-products']});toast.success('Inventario ajustado');setF({productId:'',variantId:'',quantity:0,reason:'Ajuste manual'})},onError:(e:any)=>toast.error(e.message)});
+  return <div className="space-y-6"><Toolbar title="Inventario" subtitle="Ajusta stock por producto u opcion y revisa todos los movimientos auditados."/><Panel title="Ajuste manual"><div className="grid gap-4 md:grid-cols-5"><Field label="Producto"><AdminSelect value={f.productId||products[0]?.id||''} onChange={value=>setF({...f,productId:value,variantId:''})} options={products.map((p:any)=>({value:p.id,label:`${p.name} · disponible ${availableStockFor(p)}`}))}/></Field><Field label="Opcion del producto"><AdminSelect value={f.variantId||''} onChange={value=>setF({...f,variantId:value})} options={variants.length?[{value:'',label:'Stock general'},...variants.map((variant:any)=>({value:variant.id,label:`${variantLabel(variant)} · stock ${variant.stock}`}))]:[{value:'',label:'Stock general'}]}/></Field><Field label="Cantidad (+/-)"><input type="number" className="input-dark" value={f.quantity} onChange={e=>setF({...f,quantity:Number(e.target.value)})}/></Field><Field label="Motivo"><input className="input-dark" value={f.reason} onChange={e=>setF({...f,reason:e.target.value})}/></Field><button className="btn-ember justify-center self-end" onClick={()=>adjust.mutate()} disabled={!products.length||!Number(f.quantity)}>Guardar ajuste</button></div></Panel><Panel title="Movimientos recientes">{movements.map((m:any)=><div key={m.id} className="mb-3 flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-black/30 p-4"><div><b>{m.product?.name||m.productName}</b><p className="text-sm text-white/45">{m.variant?variantLabel(m.variant):'Stock general'} · {m.type} · {m.reason||'Sin motivo'} · {new Date(m.createdAt).toLocaleString('es-DO')}</p></div><b className={m.quantity>0?'text-green-300':'text-red-300'}>{m.quantity>0?'+':''}{m.quantity}</b></div>)}{!movements.length&&<Empty text="Aun no hay movimientos de inventario."/>}</Panel></div>
+}
+function OrderTimeline({events=[]}:{events:any[]}){return <div className="mt-4 rounded-2xl border border-white/10 bg-black/25 p-4"><p className="mb-3 text-xs font-bold uppercase tracking-[.16em] text-white/45">Historial del pedido</p>{events.length?events.map(event=><div key={event.id} className="relative border-l border-orange-400/30 pb-4 pl-4 last:pb-0"><span className="absolute -left-[5px] top-1 h-2.5 w-2.5 rounded-full bg-orange-400"/><b className="text-sm">{event.title}</b><p className="text-xs text-white/45">{event.body||event.type} · {event.actor?.name||'Sistema'} · {new Date(event.createdAt).toLocaleString('es-DO')}</p></div>):<p className="text-sm text-white/45">Aún no hay movimientos registrados.</p>}</div>}
+
+const orderSectionTabs=[
+  {status:'',label:'Todos',icon:<Inbox size={16}/>,tone:'neutral'},
+  {status:'PENDING',label:'Pendientes',icon:<Wallet size={16}/>,tone:'warning'},
+  {status:'PROCESSING',label:'Procesando',icon:<Activity size={16}/>,tone:'blue'},
+  {status:'PACKED',label:'Empaquetados',icon:<Boxes size={16}/>,tone:'orange'},
+  {status:'SHIPPED',label:'Enviados',icon:<Truck size={16}/>,tone:'purple'},
+  {status:'DELIVERED',label:'Entregados',icon:<CheckCircle2 size={16}/>,tone:'green'},
+  {status:'CANCELLED',label:'Cancelados',icon:<XCircle size={16}/>,tone:'red'},
+];
+function OrderSectionTabs({status,setStatus}:{status:string;setStatus:(value:string)=>void}){return <div className="admin-order-section-tabs mb-6">{orderSectionTabs.map(item=><button key={item.status||'all'} type="button" onClick={()=>setStatus(item.status)} className={'admin-order-section-tab '+(status===item.status?'is-active ':'')+'is-'+item.tone}>{item.icon}<span>{item.label}</span></button>)}</div>}
+function OrderActionButton({tone,icon,label,description,onClick,disabled=false}:{tone:string;icon:ReactNode;label:string;description?:string;onClick:()=>void;disabled?:boolean}){return <button type="button" disabled={disabled} className={'admin-order-action is-'+tone} onClick={onClick}><span>{icon}</span><b>{label}</b>{description&&<small>{description}</small>}</button>}
+function OrderActionPanel({order,update,confirmSale,cancelSale,open,needsSaleConfirmation}:any){
+  const status=order.status;
+  const setStatus=(next:string)=>update.mutate({id:order.id,payload:{status:next}});
+  if(status==='DELIVERED')return <div className="admin-order-final-card is-delivered mt-4">
+    <div><CheckCircle2 size={21}/><b>Pedido entregado</b><p>El flujo esta cerrado. Si el cliente lo devuelve, registra la devolucion para dejar historial e inventario correctos.</p></div>
+    <div className="admin-order-final-actions"><OrderActionButton tone="danger" icon={<RotateCcw size={17}/>} label="Pedido devuelto" description="Registra devolucion y devuelve inventario" onClick={()=>cancelSale.mutate({id:order.id,returned:true})}/></div>
+  </div>;
+  if(status==='CANCELLED')return <div className="admin-order-final-card is-cancelled mt-4"><div><XCircle size={21}/><b>Pedido cancelado</b><p>Este pedido ya no tiene acciones de fulfillment. El historial queda disponible para auditoria.</p></div></div>;
+  return <div className="admin-order-actions mt-4">
+    {needsSaleConfirmation&&<OrderActionButton tone="success" icon={<CheckCircle2 size={17}/>} label="Confirmar venta/pago" description="Descuenta inventario" onClick={()=>confirmSale.mutate(order.id)}/>}
+    <OrderActionButton tone="neutral" icon={<FileText size={17}/>} label="Gestionar detalles" description="Envio, chofer, factura" onClick={()=>open(order)}/>
+    {!needsSaleConfirmation&&['PENDING','AWAITING_SHIPPING_CONFIRMATION','AWAITING_CUSTOMER_APPROVAL'].includes(status)&&<OrderActionButton tone="blue" icon={<Activity size={17}/>} label="Mover a procesamiento" description="Venta lista para preparar" onClick={()=>setStatus('PROCESSING')}/>}
+    {!needsSaleConfirmation&&status==='PROCESSING'&&<OrderActionButton tone="orange" icon={<Boxes size={17}/>} label="Marcar empaquetado" description="Producto preparado" onClick={()=>setStatus('PACKED')}/>}
+    {!needsSaleConfirmation&&status==='PACKED'&&<OrderActionButton tone="purple" icon={<Truck size={17}/>} label="Marcar enviado" description="Sale a entrega" onClick={()=>setStatus('SHIPPED')}/>}
+    {!needsSaleConfirmation&&status==='PACKED'&&<OrderActionButton tone="neutral" icon={<Activity size={17}/>} label="Regresar a procesamiento" description="Reabrir preparacion" onClick={()=>setStatus('PROCESSING')}/>}
+    {!needsSaleConfirmation&&status==='SHIPPED'&&<OrderActionButton tone="success" icon={<CheckCircle2 size={17}/>} label="Marcar entregado" description="Cierra fulfillment" onClick={()=>setStatus('DELIVERED')}/>}
+    {!needsSaleConfirmation&&status==='SHIPPED'&&<OrderActionButton tone="warning" icon={<Boxes size={17}/>} label="Regresar a empaquetado" description="Correccion de envio" onClick={()=>setStatus('PACKED')}/>}
+    {status!=='DELIVERED'&&<OrderActionButton tone="danger" icon={<XCircle size={17}/>} label="Cancelar venta" description={order.inventoryCommitted?'Devuelve inventario':'Sin descontar stock'} onClick={()=>cancelSale.mutate(order.id)}/>}
+    {!needsSaleConfirmation&&<OrderActionButton tone="warning" icon={<Truck size={17}/>} label="Enviar tarifa" description="Solicita aprobacion del cliente" onClick={()=>update.mutate({id:order.id,payload:{shipping:order.shipping}})}/>}
+  </div>
+}
+
+function OrdersTabFull(){
+  const qc=useQueryClient();
+  const [q,setQ]=useState('');
+  const [status,setStatus]=useState('');
+  const {data=[]}=useQuery({queryKey:['admin-orders-full',q,status],queryFn:()=>api<any[]>('/admin/orders?q='+encodeURIComponent(q)+'&status='+encodeURIComponent(status))});
+  const [editing,setEditing]=useState<any|null>(null);
+  const open=(o:any)=>setEditing({...o,_originalShipping:o.shipping||0});
+  const refresh=()=>{qc.invalidateQueries({queryKey:['admin-orders-full']});qc.invalidateQueries({queryKey:['admin-dashboard']});qc.invalidateQueries({queryKey:['admin-products']});};
+  const update=useMutation({mutationFn:({id,payload}:any)=>api('/admin/orders/'+id,{method:'PATCH',body:JSON.stringify(payload)}),onSuccess:()=>{refresh();toast.success('Pedido actualizado');setEditing(null)},onError:(e:any)=>toast.error(e.message)});
+  const invoice=useMutation({mutationFn:(id:string)=>api('/admin/orders/'+id+'/invoice',{method:'POST',body:JSON.stringify({})}),onSuccess:()=>{refresh();toast.success('Factura PDF generada')}});
+  const confirmSale=useMutation({mutationFn:(id:string)=>api('/admin/orders/'+id+'/confirm-sale',{method:'POST',body:JSON.stringify({})}),onSuccess:()=>{refresh();toast.success('Venta confirmada e inventario descontado')},onError:(e:any)=>toast.error(e.message)});
+  const cancelSale=useMutation({mutationFn:(request:any)=>{const payload=typeof request==='string'?{id:request,returned:false}:request;return api('/admin/orders/'+payload.id+'/cancel-sale',{method:'POST',body:JSON.stringify({action:payload.returned?'RETURNED':'CANCELLED'})})},onSuccess:(_:any,request:any)=>{refresh();toast.success(typeof request==='object'&&request.returned?'Pedido marcado como devuelto':'Venta cancelada')},onError:(e:any)=>toast.error(e.message)});
+  function saveDraft(){if(!editing)return;const payload:any={status:editing.status,packageNote:editing.packageNote||null,deliveryPlace:editing.deliveryPlace||null,driverName:editing.driverName||null,driverPhone:editing.driverPhone||null,shippingReference:editing.shippingReference||null,shippingInvoiceUrl:editing.shippingInvoiceUrl||null,adminNote:editing.adminNote||null};if(Number(editing.shipping||0)!==Number(editing._originalShipping||0))payload.shipping=Number(editing.shipping||0);update.mutate({id:editing.id,payload});}
+  const needsSaleConfirmation=(o:any)=>o.status!=='CANCELLED'&&!o.inventoryCommitted&&['AWAITING_ADMIN_CONFIRMATION','UNCONFIRMED',null,undefined].includes(o.confirmationStatus);
+  return <div>
+    <Toolbar title="Pedidos y fulfillment" subtitle="Confirma pagos antes de descontar inventario. Luego gestiona envío, factura y entrega." search={q} setSearch={setQ}>
+      <Field label="Estado"><AdminSelect className="min-w-[240px]" value={status} onChange={setStatus} options={[{value:'',label:'Todos los estados'},...orderStatuses.map(s=>({value:s,label:statusLabels[s]}))]}/></Field>
+    </Toolbar>
+    <OrderSectionTabs status={status} setStatus={setStatus}/>
+    {editing&&<Panel title={'Gestionar pedido · '+editing.id.slice(0,8)}>
+      <div className="grid gap-4 md:grid-cols-3"><Field label="Estado del pedido"><AdminSelect value={editing.status} onChange={value=>setEditing({...editing,status:value})} options={orderStatuses.map(s=>({value:s,label:statusLabels[s]}))}/></Field><Field label="Precio de envío"><input type="number" className="input-dark" value={editing.shipping||0} onChange={e=>setEditing({...editing,shipping:Number(e.target.value)})}/></Field><Field label="Tracking / referencia"><input className="input-dark" value={editing.shippingReference||''} onChange={e=>setEditing({...editing,shippingReference:e.target.value})}/></Field><Field label="Chofer"><input className="input-dark" value={editing.driverName||''} onChange={e=>setEditing({...editing,driverName:e.target.value})}/></Field><Field label="WhatsApp chofer"><input className="input-dark" value={editing.driverPhone||''} onChange={e=>setEditing({...editing,driverPhone:e.target.value})}/></Field><Field label="Parada o lugar de entrega"><input className="input-dark" value={editing.deliveryPlace||''} onChange={e=>setEditing({...editing,deliveryPlace:e.target.value})}/></Field><Field label="Factura subida"><input type="file" accept="image/*,.pdf" className="input-dark" onChange={async e=>{const file=e.target.files?.[0];if(file)setEditing({...editing,shippingInvoiceUrl:await readFile(file)})}}/></Field><Field label="Nota de empaque"><input className="input-dark" value={editing.packageNote||''} onChange={e=>setEditing({...editing,packageNote:e.target.value})}/></Field><Field label="Nota interna"><input className="input-dark" value={editing.adminNote||''} onChange={e=>setEditing({...editing,adminNote:e.target.value})}/></Field><button className="btn-ember justify-center" onClick={saveDraft}>Guardar cambios</button><button className="btn-ghost justify-center" onClick={()=>invoice.mutate(editing.id)}>Generar PDF</button><button className="btn-ghost justify-center" onClick={()=>setEditing(null)}>Cancelar</button></div>
+      <p className="mt-3 text-xs text-white/45">La tarifa de envío solo se vuelve a enviar al cliente si cambias el monto.</p>
+    </Panel>}
+    <div className="mt-6 space-y-4">{data.map((o:any)=><div key={o.id} className="rounded-3xl border border-white/10 bg-white/[.03] p-5"><div className="flex flex-wrap justify-between gap-4"><div><b>{o.user?.name||'Cliente'}</b><p className="text-sm text-white/45">{o.user?.email} · {new Date(o.createdAt).toLocaleString('es-DO')}</p><p className="mt-2 text-sm text-orange-100">{statusLabels[o.status]||o.status} · {o.shippingStatus}</p><div className="mt-3 flex flex-wrap gap-2 text-xs"><span className={(o.inventoryCommitted?'bg-green-500/15 text-green-100':'bg-yellow-500/15 text-yellow-100')+' rounded-full px-3 py-1'}>{o.inventoryCommitted?'Inventario descontado':'Pendiente de confirmar venta'}</span><span className="rounded-full bg-white/10 px-3 py-1 text-white/55">{o.paymentStatus||'Sin pago'}</span><span className="rounded-full bg-white/10 px-3 py-1 text-white/55">{o.salesChannel||'WEB'}</span></div></div><div className="text-left md:text-right"><p className="text-2xl font-black">{money(o.total,o.currency==='USD'?'US$':'RD$')}</p><p className="text-xs text-white/45">Envío {money(o.shipping,o.currency==='USD'?'US$':'RD$')}</p><p className="text-xs text-white/35">{o.items?.length||0} líneas · {o.country}</p></div></div><div className="mt-4 grid gap-2 text-center text-xs md:grid-cols-4"><span className={'rounded-full py-2 '+(['PROCESSING','PACKED','SHIPPED','DELIVERED'].includes(o.status)?'bg-orange-500/20':'bg-white/10')}>Procesando</span><span className={'rounded-full py-2 '+(['PACKED','SHIPPED','DELIVERED'].includes(o.status)?'bg-orange-500/20':'bg-white/10')}>Empaquetado</span><span className={'rounded-full py-2 '+(['SHIPPED','DELIVERED'].includes(o.status)?'bg-orange-500/20':'bg-white/10')}>Enviado</span><span className={'rounded-full py-2 '+(o.status==='DELIVERED'?'bg-green-500/20':'bg-white/10')}>Entregado</span></div><div className="mt-4 grid gap-2 md:grid-cols-2 xl:grid-cols-4">{o.items?.map((item:any)=><div key={item.id} className="flex items-center gap-3 rounded-2xl bg-black/25 p-3"><img src={item.product?.imageUrl} className="h-12 w-12 rounded-xl object-cover"/><div><p className="text-sm font-bold">{item.product?.name}</p>{item.variant&&<p className="text-xs text-orange-100">{item.variant.name}</p>}<p className="text-xs text-white/45">{item.quantity} uds · {money(item.price,o.currency==='USD'?'US$':'RD$')}</p></div></div>)}</div><OrderTimeline events={o.events||[]}/><OrderActionPanel order={o} update={update} confirmSale={confirmSale} cancelSale={cancelSale} open={open} needsSaleConfirmation={needsSaleConfirmation(o)}/><div className="mt-4 hidden flex-wrap gap-2">{needsSaleConfirmation(o)&&<button className="rounded-full bg-green-500/15 px-4 py-2 text-sm text-green-100" onClick={()=>confirmSale.mutate(o.id)}>Confirmar venta/pago</button>}{o.status!=='CANCELLED'&&<button className="rounded-full bg-red-500/10 px-4 py-2 text-sm text-red-200" onClick={()=>cancelSale.mutate(o.id)}>Cancelar venta</button>}<button className="rounded-full bg-white/10 px-4 py-2 text-sm" onClick={()=>open(o)}>Gestionar</button><button className="rounded-full bg-orange-500/15 px-4 py-2 text-sm text-orange-100" onClick={()=>update.mutate({id:o.id,payload:{shipping:o.shipping}})}>Enviar confirmación tarifa</button><button className="rounded-full bg-white/10 px-4 py-2 text-sm" onClick={()=>update.mutate({id:o.id,payload:{status:'PACKED'}})}>Marcar empaquetado</button><button className="rounded-full bg-white/10 px-4 py-2 text-sm" onClick={()=>update.mutate({id:o.id,payload:{status:'SHIPPED'}})}>Marcar enviado</button><button className="rounded-full bg-white/10 px-4 py-2 text-sm" onClick={()=>update.mutate({id:o.id,payload:{status:'DELIVERED'}})}>Marcar entregado</button></div></div>)}{!data.length&&<Empty text="Todavía no hay pedidos con esos filtros."/>}</div>
+  </div>
+}
+
+function SalesDashboardTab(){const {data,isLoading}=useQuery({queryKey:['admin-sales-dashboard'],queryFn:()=>api<any>('/admin/reports')});if(isLoading||!data)return <p className="text-white/45">Cargando ventas...</p>;const max=Math.max(...(data.dailySales||[]).map((d:any)=>d.revenue),1);return <div className="space-y-6"><Toolbar title="Dashboard de ventas" subtitle="Ingresos, utilidad estimada, estados, productos, categorías y tendencia de 30 días."/><div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5"><Stat title="Ingresos" value={money(data.summary?.revenue||0)} detail={`${data.summary?.completedOrders||0} pedidos válidos`}/><Stat title="30 días" value={money(data.summary?.revenue30||0)} detail={`${data.summary?.orders30||0} pedidos recientes`}/><Stat title="Ticket promedio" value={money(data.summary?.averageOrder||0)} detail="Promedio por pedido"/><Stat title="Utilidad" value={money(data.summary?.profit||0)} detail={`${data.summary?.margin||0}% margen estimado`}/><Stat title="Cancelación" value={`${data.summary?.cancellationRate||0}%`} detail="Pedidos cancelados"/></div><div className="grid gap-6 xl:grid-cols-[1.3fr_.7fr]"><Panel title="Ventas diarias">{(data.dailySales||[]).map((d:any)=><div key={d.date} className="mb-3 grid grid-cols-[90px_1fr_110px] items-center gap-3 text-sm"><span className="text-white/45">{d.date.slice(5)}</span><div className="h-3 overflow-hidden rounded-full bg-white/10"><div className="h-full rounded-full bg-orange-500" style={{width:`${Math.max(3,(d.revenue/max)*100)}%`}}/></div><b className="text-right">{money(d.revenue)}</b></div>)}</Panel><Panel title="Moneda">{Object.entries(data.currencyTotals||{}).map(([k,v]:any)=><div key={k} className="mb-3 flex justify-between rounded-2xl bg-black/30 px-4 py-3"><span>{k}</span><b>{money(v,k==='USD'?'US$':'RD$')}</b></div>)}{!Object.keys(data.currencyTotals||{}).length&&<Empty text="Aún no hay ventas por moneda."/>}</Panel></div><div className="grid gap-6 xl:grid-cols-2"><Panel title="Productos más vendidos">{data.topProducts?.map((p:any)=><div key={p.id} className="mb-2 flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-black/30 px-4 py-3"><span>{p.name}<small className="ml-2 text-white/35">{p.category}</small></span><b>{p.quantity} uds · {money(p.revenue)}</b></div>)}{!data.topProducts?.length&&<Empty text="Aún no hay ventas para ordenar productos."/>}</Panel><Panel title="Ventas por categoría">{data.categorySales?.map((c:any)=><div key={c.name} className="mb-2 flex justify-between rounded-2xl bg-black/30 px-4 py-3"><span>{c.name}</span><b>{c.quantity} uds · {money(c.revenue)}</b></div>)}{!data.categorySales?.length&&<Empty text="Aún no hay ventas por categoría."/>}</Panel><Panel title="Pedidos por estado">{Object.entries(data.statusCounts||{}).map(([k,v]:any)=><div key={k} className="mb-2 flex justify-between rounded-2xl bg-black/30 px-4 py-3"><span>{statusLabels[k]||k}</span><b>{v}</b></div>)}</Panel><Panel title="Alertas de inventario">{data.lowStock?.map((p:any)=><div key={p.id} className="mb-2 flex justify-between rounded-2xl bg-black/30 px-4 py-3"><span>{p.name}</span><b className="text-orange-200">{p.stock} disponibles</b></div>)}{!data.lowStock?.length&&<Empty text="No hay productos con stock bajo."/>}</Panel></div></div>}
+function ManualSaleFormLegacy({products,onSaved}:{products:any[];onSaved?:()=>void}){
+  const qc=useQueryClient();
+  const productById=useMemo(()=>new Map((products||[]).map((product:any)=>[product.id,product])),[products]);
+  const [channel,setChannel]=useState('WHATSAPP');
+  const [customerName,setCustomerName]=useState('');
+  const [reference,setReference]=useState('');
+  const [note,setNote]=useState('');
+  const blankSaleItem=()=>({productId:'',variantId:'',quantity:1,unitPrice:0});
+  const [items,setItems]=useState<any[]>(()=>[blankSaleItem()]);
+  useEffect(()=>{if(!items.length)setItems([blankSaleItem()]);},[items.length]);
+  const updateItem=(index:number,patch:any)=>setItems(current=>current.map((item,i)=>i===index?{...item,...patch}:item));
+  const addItem=()=>setItems(current=>[...current,blankSaleItem()]);
+  const removeItem=(index:number)=>setItems(current=>current.filter((_,i)=>i!==index));
+  const productVariants=(product:any)=>Array.isArray(product?.variants)?product.variants.filter((variant:any)=>variant.active):[];
+  const needsVariant=(item:any)=>productVariants(productById.get(item.productId)).length>0;
+  const selectedVariant=(item:any)=>productVariants(productById.get(item.productId)).find((variant:any)=>variant.id===item.variantId);
+  const total=items.reduce((sum,item)=>sum+(Number(item.quantity||0)*Number(item.unitPrice||0)),0);
+  const save=useMutation({
+    mutationFn:()=>api('/admin/sales/manual',{method:'POST',body:JSON.stringify({channel,customerName:customerName||null,reference:reference||null,note:note||null,currency:'DOP',items:items.filter(item=>item.productId).map(item=>({productId:item.productId,variantId:item.variantId||undefined,quantity:Number(item.quantity||1),unitPrice:Number(item.unitPrice||0)}))})}),
+    onSuccess:()=>{
+      qc.invalidateQueries({queryKey:['admin-sales-dashboard']});
+      qc.invalidateQueries({queryKey:['admin-products-for-sale']});
+      qc.invalidateQueries({queryKey:['admin-products']});
+      qc.invalidateQueries({queryKey:['admin-dashboard']});
+      qc.invalidateQueries({queryKey:['admin-inventory-movements']});
+      toast.success('Venta registrada e inventario actualizado');
+      setCustomerName('');
+      setReference('');
+      setNote('');
+      setItems([blankSaleItem()]);
+      onSaved?.();
+    },
+    onError:(e:any)=>toast.error(e.message||'No se pudo registrar la venta'),
+  });
+  const hasInvalidItem=items.some(item=>!item.productId||Number(item.quantity||0)<1||(needsVariant(item)&&!item.variantId));
+  return <Panel title="Registrar venta manual" action={<span className="rounded-full border border-orange-400/25 bg-orange-500/10 px-4 py-2 text-sm font-bold text-orange-100">{money(total)}</span>}>
+    <div className="grid gap-4 xl:grid-cols-[1fr_1.2fr]">
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-1">
+        <Field label="Tipo de venta">
+          <AdminSelect value={channel} onChange={setChannel} options={saleChannels.map(option=>({value:option.value,label:option.label}))}/>
+        </Field>
+        <Field label="Cliente / referencia visible">
+          <input className="input-dark" value={customerName} onChange={e=>setCustomerName(e.target.value)} placeholder="Ej: Maria, tienda fisica, pedido IG"/>
+        </Field>
+        <Field label="Numero o comprobante">
+          <input className="input-dark" value={reference} onChange={e=>setReference(e.target.value)} placeholder="Transferencia, recibo o nota corta"/>
+        </Field>
+        <Field label="Nota interna">
+          <textarea className="input-dark min-h-[96px]" value={note} onChange={e=>setNote(e.target.value)} placeholder="Detalle opcional para recordar esta venta"/>
+        </Field>
+      </div>
+      <div className="space-y-3">
+        {items.map((item,index)=>{
+          const selected=productById.get(item.productId);
+          const variants=productVariants(selected);
+          const variant=selectedVariant(item);
+          const maxStock=variant?variant.stock:availableStockFor(selected);
+          return <div key={index} className="rounded-3xl border border-white/10 bg-black/25 p-4">
+            <div className="grid gap-3 lg:grid-cols-[1.3fr_1fr_96px_130px_44px]">
+              <Field label="Producto">
+                <AdminSelect value={item.productId} onChange={value=>{const product=productById.get(value);updateItem(index,{productId:value,variantId:'',unitPrice:product?.salePrice??product?.price??0});}} options={[{value:'',label:'Selecciona un producto'},...products.map((product:any)=>({value:product.id,label:product.name+' · stock '+availableStockFor(product)}))]}/>
+              </Field>
+              <Field label="Opcion del producto">
+                <AdminSelect value={item.variantId||''} onChange={value=>{const nextVariant=variants.find((v:any)=>v.id===value);updateItem(index,{variantId:value,unitPrice:nextVariant?.price||selected?.salePrice||selected?.price||0});}} options={variants.length?[{value:'',label:'Selecciona opcion'},...variants.map((variant:any)=>({value:variant.id,label:variantLabel(variant)+' · stock '+variant.stock}))]:[{value:'',label:'Sin opciones'}]}/>
+              </Field>
+              <Field label="Cantidad">
+                <input type="number" min={1} max={maxStock||999} className="input-dark" value={item.quantity} onChange={e=>updateItem(index,{quantity:Number(e.target.value)})}/>
+              </Field>
+              <Field label="Precio RD$">
+                <input type="number" min={0} step="0.01" className="input-dark" value={item.unitPrice} onChange={e=>updateItem(index,{unitPrice:Number(e.target.value)})}/>
+              </Field>
+              <button type="button" className="mt-7 grid h-11 w-11 place-items-center rounded-2xl border border-red-400/20 bg-red-500/10 text-red-200 transition hover:bg-red-500/20" onClick={()=>removeItem(index)} disabled={items.length===1}><Trash2 size={16}/></button>
+            </div>
+            <div className="mt-3 flex flex-wrap items-center justify-between gap-3 text-sm text-white/45">
+              <span>{selected?.categoryName||selected?.category?.name||'Sin categoria'} · {variants.length?`opcion: ${variant?variantLabel(variant):'pendiente'}`:'stock general'} · disponibles {maxStock??0}</span>
+              <b className="text-white">{money(Number(item.quantity||0)*Number(item.unitPrice||0))}</b>
+            </div>
+          </div>;
+        })}
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-3xl border border-orange-400/20 bg-orange-500/10 p-4">
+          <button type="button" className="btn-ghost" onClick={addItem}><Plus size={16}/> Agregar producto</button>
+          <button type="button" className="btn-ember" onClick={()=>save.mutate()} disabled={save.isPending||!items.length||hasInvalidItem}><ShoppingBag size={16}/> Registrar venta</button>
+        </div>
+      </div>
+    </div>
+  </Panel>;
+}
+function ManualSaleForm({products,onSaved}:{products:any[];onSaved?:()=>void}){
+  const qc=useQueryClient();
+  const productById=useMemo(()=>new Map((products||[]).map((product:any)=>[product.id,product])),[products]);
+  const visibleProducts=useMemo(()=>products.filter((product:any)=>product.status!=='SOLD_OUT'),[products]);
+  const [open,setOpen]=useState(true);
+  const [channel,setChannel]=useState('WHATSAPP');
+  const [paidByTransfer,setPaidByTransfer]=useState(false);
+  const [paymentStatus,setPaymentStatus]=useState<'PENDING'|'PARTIAL'|'PAID'>('PENDING');
+  const [paidAmount,setPaidAmount]=useState(0);
+  const [customerName,setCustomerName]=useState('');
+  const [customerPhone,setCustomerPhone]=useState('');
+  const [reference,setReference]=useState('');
+  const [note,setNote]=useState('');
+  const blankSaleItem=()=>({productId:'',variantId:'',quantity:1,unitPrice:0,pickerOpen:true});
+  const [items,setItems]=useState<any[]>(()=>[blankSaleItem()]);
+  useEffect(()=>{if(!items.length)setItems([blankSaleItem()]);},[items.length]);
+  const updateItem=(index:number,patch:any)=>setItems(current=>current.map((item,i)=>i===index?{...item,...patch}:item));
+  const addItem=()=>setItems(current=>[...current,blankSaleItem()]);
+  const removeItem=(index:number)=>setItems(current=>current.length>1?current.filter((_,i)=>i!==index):current);
+  const productVariants=(product:any)=>Array.isArray(product?.variants)?product.variants.filter((variant:any)=>variant.active):[];
+  const needsVariant=(item:any)=>productVariants(productById.get(item.productId)).length>0;
+  const selectedVariant=(item:any)=>productVariants(productById.get(item.productId)).find((variant:any)=>variant.id===item.variantId);
+  const productImage=(product:any)=>product?.images?.[0]?.url||product?.mainImage||product?.imageUrl||'';
+  const total=items.reduce((sum,item)=>sum+(Number(item.quantity||0)*Number(item.unitPrice||0)),0);
+  const paidValue=paymentStatus==='PAID'?total:paymentStatus==='PARTIAL'?Math.min(total,Math.max(0,Number(paidAmount||0))):0;
+  const balance=Math.max(0,total-paidValue);
+  const hasInvalidPayment=paymentStatus==='PARTIAL'&&(paidValue<=0||paidValue>=total);
+  const paymentStatusLabel={PENDING:'Pendiente',PARTIAL:'Pago parcial',PAID:'Pagado completo'}[paymentStatus];
+  const paymentHint=paymentStatus==='PAID'?'Se registra como confirmada y descuenta inventario.':paymentStatus==='PARTIAL'?'Queda pendiente de confirmar el saldo antes de descontar inventario.':'Queda pendiente hasta confirmar el pago.';
+  useEffect(()=>{if(paymentStatus!=='PARTIAL')setPaidAmount(0);},[paymentStatus]);
+  const save=useMutation({
+    mutationFn:()=>api('/admin/sales/manual',{method:'POST',body:JSON.stringify({
+      channel,
+      customerName:customerName||null,
+      customerPhone:customerPhone||null,
+      reference:reference||null,
+      note:note||null,
+      currency:'DOP',
+      paidByTransfer,
+      paymentStatus,
+      paidAmount:paymentStatus==='PARTIAL'?paidValue:0,
+      items:items.filter(item=>item.productId).map(item=>({productId:item.productId,variantId:item.variantId||undefined,quantity:Number(item.quantity||1),unitPrice:Number(item.unitPrice||0)})),
+    })}),
+    onSuccess:()=>{
+      qc.invalidateQueries({queryKey:['admin-sales-dashboard']});
+      qc.invalidateQueries({queryKey:['admin-products-for-sale']});
+      qc.invalidateQueries({queryKey:['admin-products']});
+      qc.invalidateQueries({queryKey:['admin-dashboard']});
+      qc.invalidateQueries({queryKey:['admin-inventory-movements']});
+      toast.success(paymentStatus==='PAID'?'Venta registrada e inventario actualizado':'Venta registrada como pendiente de confirmacion');
+      setCustomerName('');
+      setCustomerPhone('');
+      setReference('');
+      setNote('');
+      setPaidByTransfer(false);
+      setPaymentStatus('PENDING');
+      setPaidAmount(0);
+      setItems([blankSaleItem()]);
+      onSaved?.();
+    },
+    onError:(e:any)=>toast.error(e.message||'No se pudo registrar la venta'),
+  });
+  const hasInvalidItem=items.some(item=>!item.productId||Number(item.quantity||0)<1||(needsVariant(item)&&!item.variantId));
+  return <Panel title="Registrar venta manual" action={<div className="flex flex-wrap items-center gap-2"><span className="rounded-full border border-orange-400/25 bg-orange-500/10 px-4 py-2 text-sm font-bold text-orange-100">{money(total)}</span><button type="button" className="btn-ghost rounded-full px-4 py-2 text-xs" onClick={()=>setOpen(!open)}><ChevronDown size={15} className={open?'rotate-180 transition':'transition'}/>{open?'Minimizar':'Abrir'}</button></div>}>
+    {!open?<div className="rounded-3xl border border-orange-400/15 bg-orange-500/10 p-5 text-sm text-orange-50">Formulario minimizado. Total preparado: <b>{money(total)}</b>. Abre esta seccion cuando quieras registrar una venta nueva.</div>:<div className="grid gap-5 xl:grid-cols-[.82fr_1.18fr]">
+      <div className="space-y-4">
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-1">
+          <Field label="Tipo de venta">
+            <AdminSelect value={channel} onChange={setChannel} options={saleChannels.map(option=>({value:option.value,label:option.label}))}/>
+          </Field>
+          <label className="flex items-start gap-3 rounded-2xl border border-white/10 bg-black/25 p-4 text-sm transition hover:border-orange-400/35">
+            <input type="checkbox" checked={paidByTransfer} onChange={e=>setPaidByTransfer(e.target.checked)} className="mt-1"/>
+            <span><b className="block">Pago por transferencia</b><small className="text-white/45">Activalo solo si la venta fue pagada o abonada por transferencia.</small></span>
+          </label>
+          <Field label="Estado del pago" hint={paymentHint}>
+            <AdminSelect value={paymentStatus} onChange={value=>setPaymentStatus(value as any)} options={[{value:'PENDING',label:'Pendiente de pago'},{value:'PARTIAL',label:'Pago parcial / abono'},{value:'PAID',label:'Pagado completo'}]}/>
+          </Field>
+          {paymentStatus==='PARTIAL'&&<Field label="Monto pagado RD$" hint={`Pendiente actual: ${money(balance)}`}>
+            <input type="number" min={0} max={total} step="0.01" className="input-dark" value={paidAmount} onChange={e=>setPaidAmount(Number(e.target.value))}/>
+          </Field>}
+          <div className="grid grid-cols-2 gap-3">
+            <div className="rounded-2xl border border-white/10 bg-black/30 p-4"><p className="text-xs text-white/40">Pagado</p><b className="text-xl">{money(paidValue)}</b></div>
+            <div className="rounded-2xl border border-white/10 bg-black/30 p-4"><p className="text-xs text-white/40">Pendiente</p><b className="text-xl">{money(balance)}</b></div>
+          </div>
+          <Field label="Cliente / referencia visible">
+            <input className="input-dark" value={customerName} onChange={e=>setCustomerName(e.target.value)} placeholder="Ej: Maria, tienda fisica, pedido IG"/>
+          </Field>
+          <Field label="Numero de telefono del cliente" hint="Opcional. Solo se permiten numeros para facilitar la busqueda.">
+            <input type="tel" inputMode="numeric" pattern="[0-9]*" maxLength={15} className="input-dark" value={customerPhone} onChange={e=>setCustomerPhone(e.target.value.replace(/\D/g,'').slice(0,15))} placeholder="Ej: 18492757807"/>
+          </Field>
+          <Field label="Numero de recibo o comprobante">
+            <input className="input-dark" value={reference} onChange={e=>setReference(e.target.value)} placeholder="Transferencia, recibo o nota corta"/>
+          </Field>
+          <Field label="Nota interna">
+            <textarea className="input-dark min-h-[104px]" value={note} onChange={e=>setNote(e.target.value)} placeholder="Detalle opcional para recordar esta venta"/>
+          </Field>
+        </div>
+      </div>
+      <div className="space-y-4">
+        {items.map((item,index)=>{
+          const selected=productById.get(item.productId);
+          const variants=productVariants(selected);
+          const variant=selectedVariant(item);
+          const maxStock=variant?variant.stock:availableStockFor(selected);
+          return <div key={index} className="rounded-[1.4rem] border border-white/10 bg-black/25 p-4">
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+              <div><b>Producto {index+1}</b><p className="text-xs text-white/45">{selected?'Producto seleccionado':'Selecciona desde la lista visual'}</p></div>
+              <div className="flex items-center gap-2">
+                {selected&&<button type="button" className="btn-ghost rounded-full px-4 py-2 text-xs" onClick={()=>updateItem(index,{pickerOpen:!item.pickerOpen})}>{item.pickerOpen?'Cerrar catalogo':'Cambiar producto'}</button>}
+                <button type="button" className="grid h-10 w-10 place-items-center rounded-2xl border border-red-400/20 bg-red-500/10 text-red-200 transition hover:bg-red-500/20 disabled:opacity-35" onClick={()=>removeItem(index)} disabled={items.length===1}><Trash2 size={16}/></button>
+              </div>
+            </div>
+            {selected&&<div className="mb-4 flex flex-wrap items-center gap-4 rounded-2xl border border-orange-400/25 bg-orange-500/10 p-3">
+              {productImage(selected)?<img src={productImage(selected)} alt={selected.name} className="h-20 w-20 rounded-2xl object-cover"/>:<span className="grid h-20 w-20 place-items-center rounded-2xl bg-white/10 text-xs text-white/35">Sin foto</span>}
+              <div className="min-w-0 flex-1">
+                <b className="block truncate">{selected.name}</b>
+                <p className="mt-1 text-sm text-white/50">{money(item.unitPrice||selected.salePrice||selected.price)} · disponibles {maxStock??0}</p>
+                <p className="mt-1 text-xs text-orange-100/75">{selected.categoryName||selected.category?.name||'Sin categoria'}</p>
+              </div>
+              <Check size={20} className="text-orange-300"/>
+            </div>}
+            {(!selected||item.pickerOpen)&&<div className="grid max-h-[360px] gap-3 overflow-auto pr-1 md:grid-cols-2">
+              {visibleProducts.map((product:any)=>{
+                const stock=availableStockFor(product);
+                const selectedProduct=item.productId===product.id;
+                return <button key={product.id} type="button" onClick={()=>updateItem(index,{productId:product.id,variantId:'',unitPrice:product.salePrice??product.price??0,pickerOpen:false})} className={`flex items-center gap-3 rounded-2xl border p-3 text-left transition hover:-translate-y-0.5 hover:border-orange-400/45 ${selectedProduct?'border-orange-400 bg-orange-500/15':'border-white/10 bg-black/30'}`}>
+                  {productImage(product)?<img src={productImage(product)} alt={product.name} className="h-16 w-16 rounded-2xl object-cover"/>:<span className="grid h-16 w-16 place-items-center rounded-2xl bg-white/10 text-xs text-white/35">Sin foto</span>}
+                  <span className="min-w-0 flex-1">
+                    <b className="block truncate text-sm">{product.name}</b>
+                    <small className="block text-white/45">{money(product.salePrice??product.price)} · stock {stock}</small>
+                  </span>
+                  {selectedProduct?<Check size={18} className="text-orange-300"/>:Number(stock)<=Number(product.lowStockThreshold??5)&&<span className="rounded-full bg-orange-500/15 px-2 py-1 text-[10px] font-bold text-orange-100">Bajo</span>}
+                </button>;
+              })}
+            </div>}
+            {selected&&<div className="mt-4 grid gap-3 md:grid-cols-[1fr_100px_132px]">
+              <Field label="Opcion del producto">
+                <AdminSelect value={item.variantId||''} onChange={value=>{const nextVariant=variants.find((v:any)=>v.id===value);updateItem(index,{variantId:value,unitPrice:nextVariant?.price??selected?.salePrice??selected?.price??0});}} options={variants.length?[{value:'',label:'Selecciona opcion'},...variants.map((variant:any)=>({value:variant.id,label:variantLabel(variant)+' · stock '+variant.stock}))]:[{value:'',label:'Sin opciones'}]}/>
+              </Field>
+              <Field label="Cantidad">
+                <input type="number" min={1} max={maxStock||999} className="input-dark" value={item.quantity} onChange={e=>updateItem(index,{quantity:Number(e.target.value)})}/>
+              </Field>
+              <Field label="Precio RD$">
+                <input type="number" min={0} step="0.01" className="input-dark" value={item.unitPrice} onChange={e=>updateItem(index,{unitPrice:Number(e.target.value)})}/>
+              </Field>
+            </div>}
+            {selected&&<div className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-white/[.03] px-4 py-3 text-sm text-white/45">
+              <span>{selected?.categoryName||selected?.category?.name||'Sin categoria'} · {variants.length?`opcion: ${variant?variantLabel(variant):'pendiente'}`:'stock general'} · disponibles {maxStock??0}</span>
+              <b className="text-white">{money(Number(item.quantity||0)*Number(item.unitPrice||0))}</b>
+            </div>}
+          </div>;
+        })}
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-[1.4rem] border border-orange-400/20 bg-orange-500/10 p-4">
+          <div><b>{paymentStatusLabel}</b><p className="text-sm text-white/45">Total {money(total)} · pagado {money(paidValue)} · pendiente {money(balance)}</p></div>
+          <div className="flex flex-wrap gap-2"><button type="button" className="btn-ghost" onClick={addItem}><Plus size={16}/> Agregar producto</button><button type="button" className="btn-ember" onClick={()=>save.mutate()} disabled={save.isPending||!items.length||hasInvalidItem||hasInvalidPayment}><ShoppingBag size={16}/> Registrar venta</button></div>
+        </div>
+      </div>
+    </div>}
+  </Panel>;
+}
+
+function SalesDashboardTabV2(){
+  const today=new Date().toISOString().slice(0,10);
+  const [month,setMonth]=useState(today.slice(0,7));
+  const [selectedDay,setSelectedDay]=useState(today);
+  useEffect(()=>{setSelectedDay(current=>current.startsWith(month)?current:`${month}-01`);},[month]);
+  const {data,isLoading}=useQuery({queryKey:['admin-sales-dashboard',month],queryFn:()=>api<any>(`/admin/reports?month=${encodeURIComponent(month)}`)});
+  if(isLoading||!data)return <p className="text-white/45">Cargando ventas...</p>;
+  const [year,monthNumber]=month.split('-').map(Number);
+  const firstWeekday=(new Date(year,monthNumber-1,1).getDay()+6)%7;
+  const calendarDays=data.calendar?.days||data.dailySales||[];
+  const selectedStats=calendarDays.find((day:any)=>day.date===selectedDay)||{date:selectedDay,orders:0,revenue:0,profit:0};
+  const selectedOrders=(data.calendarOrders||[]).filter((order:any)=>order.date===selectedDay);
+  const monthRevenue=calendarDays.reduce((sum:number,day:any)=>sum+Number(day.revenue||0),0);
+  const bestDay=calendarDays.reduce((best:any,day:any)=>Number(day.revenue||0)>Number(best?.revenue||0)?day:best,calendarDays[0]||null);
+  const weekdayLabels=['Lun','Mar','Mie','Jue','Vie','Sab','Dom'];
+  return <div className="space-y-6">
+    <Toolbar title="Dashboard de ventas" subtitle="Calendario mensual, utilidad, productos y control de inventario.">
+      <Field label="Mes del reporte">
+        <input type="month" className="input-dark min-w-[190px]" value={month} onChange={e=>setMonth(e.target.value||today.slice(0,7))}/>
+      </Field>
+    </Toolbar>
+    <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+      <Stat title="Ingresos" value={money(data.summary?.revenue||0)} detail={`${data.summary?.completedOrders||0} pedidos validos`}/>
+      <Stat title="Este mes" value={money(monthRevenue)} detail={data.calendar?.monthLabel||month}/>
+      <Stat title="Dia seleccionado" value={money(selectedStats.revenue||0)} detail={`${selectedStats.orders||0} ventas ese dia`}/>
+      <Stat title="Utilidad" value={money(data.summary?.profit||0)} detail={`${data.summary?.margin||0}% margen estimado`}/>
+      <Stat title="Stock bajo" value={data.summary?.lowStock||0} detail="Productos por reponer"/>
+    </div>
+    <div className="grid gap-6 xl:grid-cols-[1.25fr_.75fr]">
+      <Panel title="Calendario del mes" action={<span className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-black/30 px-4 py-2 text-sm text-white/60"><CalendarDays size={16}/>{data.calendar?.monthLabel||month}</span>}>
+        <div className="mb-3 hidden grid-cols-7 gap-2 text-center text-xs font-bold uppercase tracking-[.12em] text-white/35 lg:grid">
+          {weekdayLabels.map(day=><span key={day}>{day}</span>)}
+        </div>
+        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-7">
+          {Array.from({length:firstWeekday}).map((_,index)=><div key={`blank-${index}`} className="hidden min-h-[104px] rounded-2xl border border-white/5 bg-white/[.015] lg:block"/>)}
+          {calendarDays.map((day:any)=>{
+            const selected=day.date===selectedDay;
+            const hasSales=Number(day.orders||0)>0;
+            return <button key={day.date} type="button" onClick={()=>setSelectedDay(day.date)} className={`min-h-[112px] rounded-2xl border p-3 text-left transition hover:-translate-y-0.5 hover:border-orange-400/40 ${selected?'border-orange-400 bg-orange-500 text-black shadow-[0_0_28px_rgba(249,115,22,.24)]':hasSales?'border-orange-400/20 bg-orange-500/10':'border-white/10 bg-black/25'}`}>
+              <div className="flex items-center justify-between gap-2">
+                <span className={`grid h-9 w-9 place-items-center rounded-xl text-sm font-black ${selected?'bg-black text-orange-300':'bg-white/10 text-white'}`}>{Number(day.date.slice(-2))}</span>
+                {day.date===today&&<span className={`rounded-full px-2 py-1 text-[10px] font-black uppercase ${selected?'bg-black text-orange-200':'bg-orange-500/20 text-orange-100'}`}>Hoy</span>}
+              </div>
+              <p className={`mt-4 text-sm font-black ${selected?'text-black':'text-white'}`}>{money(day.revenue||0)}</p>
+              <p className={`mt-1 text-xs ${selected?'text-black/65':'text-white/40'}`}>{day.orders||0} venta{Number(day.orders||0)===1?'':'s'}</p>
+            </button>;
+          })}
+        </div>
+      </Panel>
+      <Panel title={`Ventas del ${selectedDay.slice(8,10)}/${selectedDay.slice(5,7)}`} action={<span className="rounded-full bg-white/10 px-4 py-2 text-sm">{money(selectedStats.revenue||0)}</span>}>
+        <div className="mb-4 grid grid-cols-2 gap-3">
+          <div className="rounded-2xl bg-black/30 p-4"><p className="text-xs text-white/40">Ventas</p><b className="text-2xl">{selectedStats.orders||0}</b></div>
+          <div className="rounded-2xl bg-black/30 p-4"><p className="text-xs text-white/40">Utilidad</p><b className="text-2xl">{money(selectedStats.profit||0)}</b></div>
+        </div>
+        <div className="max-h-[480px] space-y-3 overflow-auto pr-1">
+          {selectedOrders.map((order:any)=><div key={order.id} className="rounded-2xl border border-white/10 bg-black/30 p-4">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <b>{order.customerName||order.user?.name||'Cliente'}</b>
+                <p className="mt-1 text-sm text-white/45">{order.itemSummary||'Venta registrada'}</p>
+              </div>
+              <span className="rounded-full bg-orange-500/15 px-3 py-1 text-xs font-bold text-orange-100">{order.salesChannelLabel||order.salesChannel||'Web'}</span>
+            </div>
+            <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-sm">
+              <span className="text-white/40">{statusLabels[order.status]||order.status} · {new Date(order.createdAt).toLocaleTimeString('es-DO',{hour:'2-digit',minute:'2-digit'})}</span>
+              <b>{money(order.total,order.currency==='USD'?'US$':'RD$')}</b>
+            </div>
+          </div>)}
+          {!selectedOrders.length&&<Empty text="No hay ventas registradas en este dia."/>}
+        </div>
+      </Panel>
+    </div>
+    <div className="grid gap-6 xl:grid-cols-[.9fr_1.1fr]">
+      <Panel title="Resumen por moneda">
+        {Object.entries(data.currencyTotals||{}).map(([k,v]:any)=><div key={k} className="mb-3 flex justify-between rounded-2xl bg-black/30 px-4 py-3"><span>{k}</span><b>{money(v,k==='USD'?'US$':'RD$')}</b></div>)}
+        {!Object.keys(data.currencyTotals||{}).length&&<Empty text="Aun no hay ventas por moneda."/>}
+        {bestDay&&<div className="mt-4 rounded-2xl border border-orange-400/20 bg-orange-500/10 p-4 text-sm text-orange-50"><b>Mejor dia del mes:</b> {bestDay.date} con {money(bestDay.revenue||0)}</div>}
+      </Panel>
+      <Panel title="Pedidos por estado">
+        {Object.entries(data.statusCounts||{}).map(([k,v]:any)=><div key={k} className="mb-2 flex justify-between rounded-2xl bg-black/30 px-4 py-3"><span>{statusLabels[k]||k}</span><b>{v}</b></div>)}
+      </Panel>
+    </div>
+    <div className="grid gap-6 xl:grid-cols-2">
+      <Panel title="Productos mas vendidos">{data.topProducts?.map((p:any)=><div key={p.id} className="mb-2 flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-black/30 px-4 py-3"><span>{p.name}<small className="ml-2 text-white/35">{p.category}</small></span><b>{p.quantity} uds · {money(p.revenue)}</b></div>)}{!data.topProducts?.length&&<Empty text="Aun no hay ventas para ordenar productos."/>}</Panel>
+      <Panel title="Ventas por categoria">{data.categorySales?.map((c:any)=><div key={c.name} className="mb-2 flex justify-between rounded-2xl bg-black/30 px-4 py-3"><span>{c.name}</span><b>{c.quantity} uds · {money(c.revenue)}</b></div>)}{!data.categorySales?.length&&<Empty text="Aun no hay ventas por categoria."/>}</Panel>
+      <Panel title="Alertas de inventario">{data.lowStock?.map((p:any)=><div key={p.id} className="mb-2 flex justify-between rounded-2xl bg-black/30 px-4 py-3"><span>{p.name}</span><b className="text-orange-200">{p.stock} disponibles</b></div>)}{!data.lowStock?.length&&<Empty text="No hay productos con stock bajo."/>}</Panel>
+      <Panel title="Ultimos movimientos de inventario">{data.movements?.slice(0,8).map((m:any)=><div key={m.id} className="mb-2 flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-black/30 px-4 py-3"><span>{m.productName||'Producto'}<small className="ml-2 text-white/35">{m.type}</small></span><b className={Number(m.quantity)<0?'text-red-200':'text-emerald-200'}>{Number(m.quantity)>0?'+':''}{m.quantity}</b></div>)}{!data.movements?.length&&<Empty text="No hay movimientos de inventario."/>}</Panel>
+    </div>
+  </div>;
+}
+
+function SalesTabLegacy(){
+  const {data:products=[]}=useQuery({queryKey:['admin-products-for-sale'],queryFn:()=>api<any[]>('/admin/products')});
+  const lowStock=products.filter((product:any)=>Number(product.stock||0)<=Number(product.lowStockThreshold??5));
+  const activeProducts=products.filter((product:any)=>product.status!=='SOLD_OUT');
+  return <div className="space-y-6">
+    <Toolbar title="Ventas" subtitle="Registra ventas por WhatsApp, físico, transferencia, Instagram u otro canal."/>
+    <div className="grid gap-4 md:grid-cols-3">
+      <Stat title="Productos disponibles" value={activeProducts.length} detail="Activos para registrar venta"/>
+      <Stat title="Stock bajo" value={lowStock.length} detail="Revisar antes de vender"/>
+      <Stat title="Inventario total" value={products.reduce((sum:number,product:any)=>sum+Number(product.stock||0),0)} detail="Unidades cargadas"/>
+    </div>
+    <ManualSaleForm products={products}/>
+    <Panel title="Inventario rapido">
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+        {products.slice(0,12).map((product:any)=><div key={product.id} className="flex items-center gap-3 rounded-2xl border border-white/10 bg-black/25 p-3">
+          {product.imageUrl&&<img src={product.imageUrl} alt={product.name} className="h-14 w-14 rounded-xl object-cover"/>}
+          <div className="min-w-0 flex-1">
+            <b className="block truncate text-sm">{product.name}</b>
+            <p className="text-xs text-white/40">{money(product.salePrice??product.price)} · stock {product.stock}</p>
+          </div>
+          {Number(product.stock||0)<=Number(product.lowStockThreshold??5)&&<span className="rounded-full bg-orange-500/15 px-2 py-1 text-[10px] font-bold text-orange-100">Bajo</span>}
+        </div>)}
+        {!products.length&&<Empty text="No hay productos cargados para vender."/>}
+      </div>
+    </Panel>
+  </div>;
+}
+
+
+function SalesTab(){
+  const qc=useQueryClient();
+  const today=new Date().toISOString().slice(0,10);
+  const [month,setMonth]=useState(today.slice(0,7));
+  const [salesSearch,setSalesSearch]=useState('');
+  const [channelFilter,setChannelFilter]=useState('');
+  const [paymentFilter,setPaymentFilter]=useState('');
+  const {data:products=[]}=useQuery({queryKey:['admin-products-for-sale'],queryFn:()=>api<any[]>('/admin/products')});
+  const {data:salesData,isLoading}=useQuery({queryKey:['admin-sales-dashboard',month,'manual'],queryFn:()=>api<any>(`/admin/reports?month=${encodeURIComponent(month)}`)});
+  const lowStock=products.filter((product:any)=>Number(availableStockFor(product)||0)<=Number(product.lowStockThreshold??5));
+  const activeProducts=products.filter((product:any)=>product.status!=='SOLD_OUT');
+  const manualOrders=salesData?.manualOrders||[];
+  const [chartYear,chartMonthNumber]=month.split('-').map(Number);
+  const chartDayLimit=month===today.slice(0,7)?Number(today.slice(8,10)):new Date(chartYear,chartMonthNumber,0).getDate();
+  const chartDays=Array.from({length:chartDayLimit},(_,index)=>{
+    const date=`${month}-${String(index+1).padStart(2,'0')}`;
+    const dayOrders=manualOrders.filter((order:any)=>String(order.date||order.createdAt||'').slice(0,10)===date);
+    return {
+      date,
+      orders:dayOrders.length,
+      revenue:dayOrders.reduce((sum:number,order:any)=>sum+Number(order.total||0),0),
+      paid:dayOrders.reduce((sum:number,order:any)=>sum+Number(order.paidAmount||0),0),
+    };
+  });
+  const summary=salesData?.manualSummary||{};
+  const paymentCounts=salesData?.manualPaymentCounts||{};
+  const highestDailySales=Math.max(...chartDays.map((day:any)=>Number(day.orders||0)),0);
+  const chartMax=Math.max(4,highestDailySales+2);
+  const chartTicks=chartMax<=10?Array.from({length:chartMax+1},(_,index)=>chartMax-index):[chartMax,Math.ceil(chartMax*.75),Math.ceil(chartMax*.5),Math.ceil(chartMax*.25),0];
+  const paymentStatusLabels:any={PENDING:'Pendiente',PARTIAL:'Parcial',PAID:'Pagado',CONFIRMED:'Confirmado',CANCELLED:'Cancelado'};
+  const normalizeSearch=(value:unknown)=>String(value||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
+  const filteredOrders=useMemo(()=>{
+    const query=normalizeSearch(salesSearch).trim();
+    return manualOrders.filter((order:any)=>{
+      if(channelFilter&&order.salesChannel!==channelFilter)return false;
+      if(paymentFilter&&order.paymentStatus!==paymentFilter)return false;
+      if(!query)return true;
+      const searchable=[
+        order.customerName,
+        order.customerPhone,
+        order.paymentReference,
+        order.id,
+        order.salesChannel,
+        order.salesChannelLabel,
+        order.paymentStatus,
+        paymentStatusLabels[order.paymentStatus],
+        order.itemSummary,
+      ].map(normalizeSearch).join(' ');
+      return searchable.includes(query);
+    });
+  },[manualOrders,salesSearch,channelFilter,paymentFilter]);
+  const refreshSales=()=>{qc.invalidateQueries({queryKey:['admin-sales-dashboard']});qc.invalidateQueries({queryKey:['admin-products-for-sale']});};
+  const productImage=(product:any)=>product?.images?.[0]?.url||product?.mainImage||product?.imageUrl||'';
+  return <div className="space-y-6">
+    <Toolbar title="Ventas" subtitle="Registra ventas manuales con pago pendiente, parcial o completo. La transferencia se marca como metodo de pago, no como tipo de venta.">
+      <Field label="Mes">
+        <input type="month" className="input-dark min-w-[180px]" value={month} onChange={e=>setMonth(e.target.value||today.slice(0,7))}/>
+      </Field>
+    </Toolbar>
+    <CollapsiblePanel title="Ventas registradas" action={<span className="rounded-full bg-white/10 px-4 py-2 text-sm">{filteredOrders.length} de {manualOrders.length}</span>}>
+      <div className="mb-5 grid gap-3 lg:grid-cols-[1fr_220px_220px]">
+        <div className="admin-search flex min-h-[46px] items-center gap-2 rounded-2xl px-4">
+          <Search size={17}/>
+          <input value={salesSearch} onChange={e=>setSalesSearch(e.target.value)} placeholder="Buscar cliente, telefono, comprobante, producto o ID..." className="w-full bg-transparent text-sm outline-none"/>
+        </div>
+        <Field label="Tipo de venta">
+          <AdminSelect value={channelFilter} onChange={setChannelFilter} options={[{value:'',label:'Todos los tipos'},...saleChannels.map(option=>({value:option.value,label:option.label}))]}/>
+        </Field>
+        <Field label="Estado de pago">
+          <AdminSelect value={paymentFilter} onChange={setPaymentFilter} options={[{value:'',label:'Todos los estados'},...['PENDING','PARTIAL','PAID'].map(status=>({value:status,label:paymentStatusLabels[status]}))]}/>
+        </Field>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[980px] border-separate border-spacing-y-2 text-left text-sm">
+          <thead className="text-xs uppercase tracking-[.12em] text-white/40">
+            <tr><th className="px-3 py-2">Fecha</th><th className="px-3 py-2">Cliente</th><th className="px-3 py-2">Telefono</th><th className="px-3 py-2">Productos</th><th className="px-3 py-2">Tipo</th><th className="px-3 py-2">Pago</th><th className="px-3 py-2 text-right">Pagado</th><th className="px-3 py-2 text-right">Pendiente</th><th className="px-3 py-2 text-right">Total</th></tr>
+          </thead>
+          <tbody>
+            {filteredOrders.map((order:any)=><tr key={order.id} className="rounded-2xl bg-black/30">
+              <td className="rounded-l-2xl px-3 py-3 text-white/55">{new Date(order.createdAt).toLocaleDateString('es-DO')}</td>
+              <td className="px-3 py-3"><b>{order.customerName||order.user?.name||'Venta manual'}</b><p className="text-xs text-white/35">{order.paymentReference||order.id.slice(0,8)}</p></td>
+              <td className="px-3 py-3 text-white/60">{order.customerPhone||'No registrado'}</td>
+              <td className="max-w-[280px] px-3 py-3 text-white/65">{order.itemSummary||`${order.items?.length||0} productos`}</td>
+              <td className="px-3 py-3"><span className="rounded-full bg-white/10 px-3 py-1 text-xs">{order.salesChannelLabel||order.salesChannel}</span></td>
+              <td className="px-3 py-3"><span className={`rounded-full px-3 py-1 text-xs font-bold ${order.paymentStatus==='PAID'||order.paymentStatus==='CONFIRMED'?'bg-emerald-500/15 text-emerald-100':order.paymentStatus==='PARTIAL'?'bg-yellow-500/15 text-yellow-100':'bg-orange-500/15 text-orange-100'}`}>{paymentStatusLabels[order.paymentStatus]||order.paymentStatus}</span></td>
+              <td className="px-3 py-3 text-right">{money(order.paidAmount||0,order.currency==='USD'?'US$':'RD$')}</td>
+              <td className="px-3 py-3 text-right">{money(order.balance||0,order.currency==='USD'?'US$':'RD$')}</td>
+              <td className="rounded-r-2xl px-3 py-3 text-right font-black">{money(order.total||0,order.currency==='USD'?'US$':'RD$')}</td>
+            </tr>)}
+          </tbody>
+        </table>
+        {!filteredOrders.length&&<Empty text={manualOrders.length?'No encontramos ventas con esos filtros.':'No hay ventas registradas en este mes.'}/>}
+      </div>
+    </CollapsiblePanel>
+    <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+      <Stat title="Ventas registradas" value={summary.orders||0} detail="Solo ventas manuales"/>
+      <Stat title="Cobrado" value={money(summary.paid||0)} detail={`${paymentCounts.PAID||0} pagadas completo`}/>
+      <Stat title="Pendiente" value={money(summary.pending||0)} detail={`${(paymentCounts.PENDING||0)+(paymentCounts.PARTIAL||0)} por completar`}/>
+      <Stat title="Ganancia estimada" value={money(summary.profit||0)} detail={`${summary.margin||0}% margen`}/>
+    </div>
+    <ManualSaleForm products={products} onSaved={refreshSales}/>
+    <div className="grid gap-6 xl:grid-cols-[1.05fr_.95fr]">
+      <CollapsiblePanel title="Grafico de ventas del mes" action={<span className="rounded-full border border-white/10 bg-black/30 px-4 py-2 text-sm text-white/60">{isLoading?'Cargando...':`${manualOrders.length} ventas`}</span>}>
+        <div className="rounded-[1.35rem] border border-white/10 bg-black/25 p-4">
+          <div className="grid grid-cols-[58px_1fr] gap-3">
+            <div className="relative h-72 text-right text-[11px] text-white/35">
+              {chartTicks.map((tick,index)=><span key={index} className="absolute right-0 -translate-y-1/2" style={{top:`${((chartMax-Number(tick))/chartMax)*100}%`}}>{Math.round(Number(tick)).toLocaleString('es-DO')}</span>)}
+            </div>
+            <div className="overflow-hidden pb-2">
+              <div className="relative h-72 w-full">
+                <div className="absolute inset-0 flex flex-col justify-between">
+                  {chartTicks.map((tick,index)=><span key={index} className="absolute left-0 right-0 border-t border-white/10" style={{top:`${((chartMax-Number(tick))/chartMax)*100}%`}}/>)}
+                </div>
+                <div className="relative z-10 flex h-full items-end gap-2 px-2">
+                  {chartDays.map((day:any)=>{
+                    const revenue=Number(day.revenue||0);
+                    const salesCount=Number(day.orders||0);
+                    const paid=Number(day.paid||0);
+                    const pending=Math.max(0,revenue-paid);
+                    const height=salesCount?(salesCount/chartMax)*100:0;
+                    const paidHeight=revenue?Math.min(100,Math.max(0,(paid/revenue)*100)):0;
+                    const pendingHeight=revenue?Math.min(100-paidHeight,Math.max(0,(pending/revenue)*100)):0;
+                    return <div key={day.date} className="group grid h-full min-w-0 flex-1 grid-rows-[1fr_18px] items-end gap-2">
+                      <div className="relative flex h-full w-full items-end justify-center">
+                        {salesCount>0&&<span className="absolute -top-6 whitespace-nowrap rounded-full bg-white px-2 py-0.5 text-[10px] font-black text-black opacity-0 shadow-lg transition group-hover:opacity-100">{salesCount} venta{salesCount===1?'':'s'} · {money(revenue)}</span>}
+                        <div className="relative w-full max-w-[38px] overflow-hidden rounded-t-md bg-white/10 transition-colors group-hover:bg-white/15" style={{height:salesCount?`${height}%`:'3px'}}>
+                          {salesCount>0?<>
+                            <span className="absolute bottom-0 left-0 right-0 bg-emerald-400" style={{height:`${paidHeight}%`}}/>
+                            <span className="absolute left-0 right-0 bg-orange-500" style={{bottom:`${paidHeight}%`,height:`${pendingHeight}%`}}/>
+                          </>:<span className="absolute inset-0 bg-white/10"/>}
+                        </div>
+                      </div>
+                      <span className="text-[10px] font-bold text-white/40">{day.date.slice(8)}</span>
+                    </div>;
+                  })}
+                </div>
+              </div>
+            </div>
+          </div>
+          {!chartDays.length&&<Empty text="Aun no hay ventas para graficar este mes."/>}
+        </div>
+        <div className="mt-5 flex flex-wrap items-center justify-between gap-3 text-xs text-white/45">
+          <div className="flex flex-wrap gap-3"><span className="inline-flex items-center gap-2"><i className="h-3 w-6 rounded-full bg-emerald-400"/>Cobrado</span><span className="inline-flex items-center gap-2"><i className="h-3 w-6 rounded-full bg-orange-500"/>Pendiente</span></div>
+          <span>La altura mide cantidad de ventas; el color separa cobrado y pendiente.</span>
+        </div>
+      </CollapsiblePanel>
+      <CollapsiblePanel title="Estado de pagos">
+        <div className="grid gap-3 sm:grid-cols-3">
+          {['PENDING','PARTIAL','PAID'].map(status=><div key={status} className="rounded-2xl border border-white/10 bg-black/30 p-4"><p className="text-xs uppercase tracking-[.12em] text-white/40">{paymentStatusLabels[status]}</p><b className="mt-2 block text-2xl">{paymentCounts[status]||0}</b></div>)}
+        </div>
+        <div className="mt-4 rounded-2xl border border-orange-400/20 bg-orange-500/10 p-4 text-sm text-orange-50">
+          <b>Regla segura:</b> las ventas pendientes o parciales quedan registradas, pero el inventario solo se descuenta cuando confirmas la venta.
+        </div>
+      </CollapsiblePanel>
+    </div>
+    <CollapsiblePanel title="Inventario rapido">
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+        {products.slice(0,12).map((product:any)=><div key={product.id} className="flex items-center gap-3 rounded-2xl border border-white/10 bg-black/25 p-3">
+          {productImage(product)&&<img src={productImage(product)} alt={product.name} className="h-14 w-14 rounded-xl object-cover"/>}
+          <div className="min-w-0 flex-1">
+            <b className="block truncate text-sm">{product.name}</b>
+            <p className="text-xs text-white/40">{money(product.salePrice??product.price)} · stock {availableStockFor(product)}</p>
+          </div>
+          {Number(availableStockFor(product)||0)<=Number(product.lowStockThreshold??5)&&<span className="rounded-full bg-orange-500/15 px-2 py-1 text-[10px] font-bold text-orange-100">Bajo</span>}
+        </div>)}
+        {!products.length&&<Empty text="No hay productos cargados para vender."/>}
+      </div>
+    </CollapsiblePanel>
+  </div>;
+}
+
+function NotificationsTab(){
+  const qc=useQueryClient();
+  const [unread,setUnread]=useState(true);
+  const [type,setType]=useState('');
+  const [form,setForm]=useState({title:'',body:'',type:'SYSTEM',priority:'NORMAL',permission:'orders',actionUrl:'/dixnissowner'});
+  const {data=[]}=useQuery({queryKey:['admin-notifications',unread,type],queryFn:()=>api<any[]>('/admin/notifications?unread='+(unread?'1':'0')+'&type='+encodeURIComponent(type))});
+  const {data:summary=notificationSummaryDefault}=useQuery({queryKey:['admin-notifications-summary'],queryFn:()=>api<any>('/admin/notifications/summary'),refetchInterval:30000});
+  const invalidate=()=>{qc.invalidateQueries({queryKey:['admin-notifications']});qc.invalidateQueries({queryKey:['admin-notifications-summary']});qc.invalidateQueries({queryKey:['admin-dashboard-notifications']});qc.invalidateQueries({queryKey:['admin-dashboard']});};
+  const send=useMutation({mutationFn:()=>api('/admin/notifications',{method:'POST',body:JSON.stringify({...form,permission:form.permission||null})}),onSuccess:()=>{invalidate();toast.success('Notificación enviada');setForm({...form,title:'',body:''})},onError:(e:any)=>toast.error(e.message)});
+  const read=useMutation({mutationFn:(id:string)=>api('/admin/notifications/'+id+'/read',{method:'PATCH',body:JSON.stringify({})}),onSuccess:()=>invalidate()});
+  const readAll=useMutation({mutationFn:()=>api('/admin/notifications/read-all',{method:'POST',body:JSON.stringify({})}),onSuccess:()=>{invalidate();toast.success('Notificaciones marcadas como leídas')}});
+  const counts=['ORDER','SUPPORT','SALES','INVENTORY','SYSTEM'].map(type=>({type,label:notificationTypeLabels[type]||type,count:summary.byType?.[type]||0}));
+  return <div className="space-y-6"><Toolbar title="Notificaciones internas" subtitle="Bandeja operativa con contadores por sección, tipo y estado."><button className="btn-ghost rounded-full px-4 py-2" onClick={()=>setUnread(!unread)}>{unread?'Ver todas':'Ver no leídas'}</button><Field label="Tipo"><AdminSelect className="min-w-[180px]" value={type} onChange={setType} options={[{value:'',label:'Todos'},...['SYSTEM','ORDER','SUPPORT','SALES','INVENTORY'].map(x=>({value:x,label:notificationTypeLabels[x]||x}))]}/></Field><button className="btn-ember rounded-full" onClick={()=>readAll.mutate()}>Marcar todo leído</button></Toolbar>
+    <div className="grid grid-cols-[repeat(auto-fit,minmax(128px,1fr))] gap-3">{counts.map(item=><button key={item.type} type="button" onClick={()=>{setType(item.type);setUnread(true)}} className={'admin-notification-chip text-left '+(item.count?'has-count':'')}><span>{item.label}</span><b>{item.count}</b></button>)}</div>
+    <Panel title="Crear aviso interno"><div className="grid gap-4 md:grid-cols-3"><Field label="Título"><input className="input-dark" value={form.title} onChange={e=>setForm({...form,title:e.target.value})}/></Field><Field label="Sección / permiso"><AdminSelect value={form.permission} onChange={value=>setForm({...form,permission:value})} options={[{value:'',label:'Solo global'},...['orders','support','reports','inventory','users','shipping','products'].map(x=>({value:x,label:notificationSectionLabels[x]||x}))]}/></Field><Field label="Prioridad"><AdminSelect value={form.priority} onChange={value=>setForm({...form,priority:value})} options={['LOW','NORMAL','HIGH'].map(x=>({value:x,label:x}))}/></Field><Field label="Tipo"><AdminSelect value={form.type} onChange={value=>setForm({...form,type:value})} options={['SYSTEM','ORDER','SUPPORT','SALES','INVENTORY'].map(x=>({value:x,label:notificationTypeLabels[x]||x}))}/></Field><Field label="Ruta de acción"><input className="input-dark" value={form.actionUrl} onChange={e=>setForm({...form,actionUrl:e.target.value})}/></Field><div className="md:col-span-3"><Field label="Mensaje"><textarea className="input-dark min-h-[90px]" value={form.body} onChange={e=>setForm({...form,body:e.target.value})}/></Field></div><button className="btn-ember justify-center rounded-full" onClick={()=>send.mutate()} disabled={!form.title||!form.body}>Enviar aviso</button></div></Panel>
+    <Panel title="Bandeja interna" action={<span className="admin-count-pill"><Bell size={15}/>{summary.total||0} sin leer</span>}><div className="space-y-3">{data.map((n:any)=><button type="button" key={n.id} onClick={()=>!n.read&&read.mutate(n.id)} className={'admin-notification-item w-full text-left '+(n.read?'is-read':'is-unread')}><div className="flex flex-wrap items-start justify-between gap-3"><div><span className="admin-notification-type">{notificationTypeLabels[n.type]||n.type}</span><b className="mt-1 block">{n.title}</b><p className="mt-1 text-sm">{n.body}</p><p className="mt-2 text-xs">{n.priority} · {n.user?.name||'Global'} · {new Date(n.createdAt).toLocaleString('es-DO')}</p></div>{!n.read&&<span className="admin-unread-dot"/>}</div></button>)}{!data.length&&<Empty text="No hay notificaciones con esos filtros."/>}</div></Panel>
+  </div>
+}
+function SecurityTab(){const qc=useQueryClient();const {data=[]}=useQuery({queryKey:['admin-logs'],queryFn:()=>api<any[]>('/admin/logs')});const {data:bans=[]}=useQuery({queryKey:['admin-security-bans'],queryFn:()=>api<any[]>('/admin/security-bans')});const unban=useMutation({mutationFn:(id:string)=>api('/admin/security-bans/'+id+'/unban',{method:'POST',body:JSON.stringify({})}),onSuccess:()=>{qc.invalidateQueries({queryKey:['admin-security-bans']});qc.invalidateQueries({queryKey:['admin-logs']});toast.success('IP desbloqueada')}});return <div className="space-y-6"><Panel title="IPs bloqueadas por la trampa /admin">{bans.map((b:any)=><div key={b.id} className={`mb-3 flex flex-wrap items-center justify-between gap-3 rounded-2xl border p-4 ${b.banned?'border-red-400/30 bg-red-500/10':'border-white/10 bg-black/25'}`}><div><b>{b.ip}</b><p className="text-sm text-white/45">{b.hits} intentos · {b.reason||'Sin bloqueo'} · {b.userAgent||'Sin navegador'}</p><p className="text-xs text-white/35">Última ruta: {b.lastPath||'/admin'} · hasta {b.bannedUntil?new Date(b.bannedUntil).toLocaleString('es-DO'):'sin fecha'}</p></div>{b.banned&&<button className="rounded-full bg-white/10 px-4 py-2 text-sm" onClick={()=>unban.mutate(b.id)}>Desbloquear</button>}</div>)}{!bans.length&&<Empty text="No hay IPs registradas por la trampa."/>}</Panel><Panel title="Auditoría y seguridad">{data.map((l:any)=><div key={l.id} className="border-b border-white/10 py-3"><b>{l.action}</b><p className="text-sm text-white/45">{l.user?.email||'Sistema'} · {new Date(l.createdAt).toLocaleString('es-DO')} · {l.ip||'local'}</p></div>)}{!data.length&&<Empty text="No hay logs todavía."/>}</Panel></div>}
+
+const auditTypeOptions=[
+  {value:'',label:'Todos los tipos'},
+  {value:'AUTH',label:'Autenticacion'},
+  {value:'USER',label:'Usuarios'},
+  {value:'ROLE',label:'Roles'},
+  {value:'PRODUCT',label:'Productos'},
+  {value:'PRODUCT_VARIANT',label:'Opciones'},
+  {value:'CATEGORY',label:'Categorias'},
+  {value:'ORDER',label:'Pedidos'},
+  {value:'MANUAL_SALE',label:'Ventas manuales'},
+  {value:'INVENTORY',label:'Inventario'},
+  {value:'COUPON',label:'Cupones'},
+  {value:'DROP',label:'Drops'},
+  {value:'MODEL',label:'Modelos'},
+  {value:'CONTENT',label:'Contenido'},
+  {value:'TICKET',label:'Ayuda'},
+  {value:'NOTIFICATION',label:'Notificaciones'},
+  {value:'SECURITY',label:'Seguridad'},
+  {value:'SETTING',label:'Configuracion'},
+];
+const listSizeOptions=[10,20,50,100,200].map(value=>({value:String(value),label:String(value)}));
+function auditTypeFor(action:string){
+  const match=auditTypeOptions.filter(item=>item.value).find(item=>action.startsWith(item.value));
+  return match?.label||'Sistema';
+}
+function auditToneFor(action:string){
+  if(action.includes('DELETED')||action.includes('CANCELLED')||action.includes('BANNED'))return 'danger';
+  if(action.includes('RETURNED')||action.includes('UNBANNED')||action.includes('DISABLED'))return 'warning';
+  if(action.includes('CREATED')||action.includes('CONFIRMED'))return 'success';
+  if(action.includes('UPDATED')||action.includes('ADJUSTED'))return 'info';
+  return 'neutral';
+}
+function SecurityTabV2(){
+  const qc=useQueryClient();
+  const [q,setQ]=useState('');
+  const [type,setType]=useState('');
+  const [auditTake,setAuditTake]=useState('20');
+  const [banTake,setBanTake]=useState('20');
+  const {data=[]}=useQuery({queryKey:['admin-logs',q,type,auditTake],queryFn:()=>api<any[]>('/admin/logs?q='+encodeURIComponent(q)+'&type='+encodeURIComponent(type)+'&take='+encodeURIComponent(auditTake))});
+  const {data:bans=[]}=useQuery({queryKey:['admin-security-bans',banTake],queryFn:()=>api<any[]>('/admin/security-bans?take='+encodeURIComponent(banTake))});
+  const unban=useMutation({mutationFn:(id:string)=>api('/admin/security-bans/'+id+'/unban',{method:'POST',body:JSON.stringify({})}),onSuccess:()=>{qc.invalidateQueries({queryKey:['admin-security-bans']});qc.invalidateQueries({queryKey:['admin-logs']});toast.success('IP desbloqueada')}});
+  return <div className="space-y-6">
+    <Panel title="IPs bloqueadas por la trampa /admin" action={<Field label="Mostrar"><AdminSelect className="min-w-[120px]" value={banTake} onChange={setBanTake} options={listSizeOptions}/></Field>}>
+      {bans.map((b:any)=><div key={b.id} className={`mb-3 flex flex-wrap items-center justify-between gap-3 rounded-2xl border p-4 ${b.banned?'border-red-400/30 bg-red-500/10':'border-white/10 bg-black/25'}`}><div><b>{b.ip}</b><p className="text-sm text-white/45">{b.hits} intentos · {b.reason||'Sin bloqueo'} · {b.userAgent||'Sin navegador'}</p><p className="text-xs text-white/35">Última ruta: {b.lastPath||'/admin'} · hasta {b.bannedUntil?new Date(b.bannedUntil).toLocaleString('es-DO'):'sin fecha'}</p></div>{b.banned&&<button className="rounded-full bg-white/10 px-4 py-2 text-sm" onClick={()=>unban.mutate(b.id)}>Desbloquear</button>}</div>)}
+      {!bans.length&&<Empty text="No hay IPs registradas por la trampa."/>}
+    </Panel>
+    <Toolbar title="Auditoria y seguridad" subtitle="Busca por accion, usuario, correo o IP; filtra por tipo para revisar rapido." search={q} setSearch={setQ}>
+      <Field label="Tipo"><AdminSelect className="min-w-[240px]" value={type} onChange={setType} options={auditTypeOptions}/></Field>
+      <Field label="Mostrar"><AdminSelect className="min-w-[120px]" value={auditTake} onChange={setAuditTake} options={listSizeOptions}/></Field>
+    </Toolbar>
+    <Panel title="Registro de auditoria" action={<span className="admin-count-pill"><ShieldCheck size={15}/>{data.length} / {auditTake}</span>}>
+      <div className="grid gap-3">{data.map((log:any)=><div key={log.id} className={'admin-audit-row is-'+auditToneFor(log.action)}>
+        <span className="admin-audit-icon">{auditToneFor(log.action)==='danger'?<XCircle size={17}/>:auditToneFor(log.action)==='success'?<CheckCircle2 size={17}/>:auditToneFor(log.action)==='warning'?<AlertTriangle size={17}/>:<ShieldCheck size={17}/>}</span>
+        <div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><b>{log.action}</b><em>{auditTypeFor(log.action)}</em></div><p>{log.user?.email||log.user?.name||'Sistema'} · {new Date(log.createdAt).toLocaleString('es-DO')} · {log.ip||'local'}</p></div>
+      </div>)}</div>
+      {!data.length&&<Empty text="No hay logs con esos filtros."/>}
+    </Panel>
+  </div>
+}
+
+function CategoryImageCropper({source,onApply,onCancel}:{source:string;onApply:(value:string)=>void;onCancel:()=>void}){
+  const [zoom,setZoom]=useState(1);
+  const [posX,setPosX]=useState(50);
+  const [posY,setPosY]=useState(50);
+  const [busy,setBusy]=useState(false);
+  const applyCrop=()=>{
+    setBusy(true);
+    const img=new Image();
+    img.onload=()=>{
+      const outputWidth=960;
+      const outputHeight=720;
+      const canvas=document.createElement('canvas');
+      canvas.width=outputWidth;
+      canvas.height=outputHeight;
+      const ctx=canvas.getContext('2d');
+      if(!ctx){setBusy(false);return;}
+      const scale=Math.max(outputWidth/img.width,outputHeight/img.height)*zoom;
+      const drawWidth=img.width*scale;
+      const drawHeight=img.height*scale;
+      const dx=(outputWidth-drawWidth)*(posX/100);
+      const dy=(outputHeight-drawHeight)*(posY/100);
+      ctx.drawImage(img,dx,dy,drawWidth,drawHeight);
+      onApply(canvas.toDataURL('image/webp',0.86));
+      setBusy(false);
+    };
+    img.onerror=()=>setBusy(false);
+    img.src=source;
+  };
+  return <div className="fixed inset-0 z-[80] grid place-items-center bg-black/80 p-4 backdrop-blur-md">
+    <div className="w-full max-w-3xl rounded-[2rem] border border-white/10 bg-[#120d0a] p-5 shadow-2xl shadow-black/60">
+      <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+        <div><p className="text-xs font-black uppercase tracking-[.2em] text-orange-400">Recorte de categoria</p><h3 className="text-2xl font-black">Ajusta la imagen del cuadro</h3><p className="admin-muted mt-1 text-sm">El marco mantiene la misma proporcion que veran los clientes en Home.</p></div>
+        <button type="button" className="btn-ghost rounded-full px-4 py-2 text-xs" onClick={onCancel}>Cerrar</button>
+      </div>
+      <div className="grid gap-5 lg:grid-cols-[1fr_260px]">
+        <div className="overflow-hidden rounded-[1.5rem] border border-orange-400/20 bg-black aspect-[4/3]">
+          <img src={source} alt="Recorte de categoria" className="h-full w-full object-cover transition-transform duration-200" style={{transform:`scale(${zoom})`,objectPosition:`${posX}% ${posY}%`}}/>
+        </div>
+        <div className="space-y-4">
+          <Field label="Zoom"><input type="range" min="1" max="3" step="0.05" value={zoom} onChange={e=>setZoom(Number(e.target.value))} className="w-full accent-orange-500"/></Field>
+          <Field label="Mover horizontal"><input type="range" min="0" max="100" value={posX} onChange={e=>setPosX(Number(e.target.value))} className="w-full accent-orange-500"/></Field>
+          <Field label="Mover vertical"><input type="range" min="0" max="100" value={posY} onChange={e=>setPosY(Number(e.target.value))} className="w-full accent-orange-500"/></Field>
+          <button type="button" className="btn-ember w-full justify-center" disabled={busy} onClick={applyCrop}>{busy?'Recortando...':'Usar esta imagen'}</button>
+        </div>
+      </div>
+    </div>
+  </div>;
+}
+
+function CategoriesTabV2(){
+  const qc=useQueryClient();
+  const blank={id:'',name:'',slug:'',icon:'🕶️',sortOrder:0,imageUrl:''};
+  const {data=[]}=useQuery({queryKey:['admin-categories'],queryFn:()=>api<any[]>('/admin/categories')});
+  const [f,setF]=useState<any>(blank);
+  const [cropSource,setCropSource]=useState('');
+  const save=useMutation({mutationFn:(p:any)=>api(p.id?`/admin/categories/${p.id}`:'/admin/categories',{method:p.id?'PATCH':'POST',body:JSON.stringify({...p,imageUrl:p.imageUrl||null,id:undefined})}),onSuccess:()=>{qc.invalidateQueries({queryKey:['admin-categories']});qc.invalidateQueries({queryKey:['public-categories']});toast.success('Categoria guardada');setF(blank);setCropSource('')},onError:(e:any)=>toast.error(e.message)});
+  const del=useMutation({mutationFn:(id:string)=>api('/admin/categories/'+id,{method:'DELETE'}),onSuccess:()=>{qc.invalidateQueries({queryKey:['admin-categories']});qc.invalidateQueries({queryKey:['public-categories']});toast.success('Categoria eliminada')},onError:(e:any)=>toast.error(e.message)});
+  const pickImage=async(file?:File)=>{
+    if(!file)return;
+    setCropSource(await readFile(file));
+  };
+  return <div className="space-y-6">
+    {cropSource&&<CategoryImageCropper source={cropSource} onCancel={()=>setCropSource('')} onApply={imageUrl=>{setF((current:any)=>({...current,imageUrl}));setCropSource('');}}/>}
+    <Toolbar title="Categorias" subtitle="Crea secciones con emoji o imagen opcional recortada al tamano del cuadro."/>
+    <Panel title={f.id?'Editar categoria':'Crear categoria'} action={f.id?<button type="button" className="btn-ghost rounded-full px-4 py-2 text-xs" onClick={()=>setF(blank)}>Nueva categoria</button>:null}>
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+        <Field label="Nombre visible"><input className="input-dark" value={f.name} onChange={e=>setF({...f,name:e.target.value,slug:f.slug||slugify(e.target.value)})}/></Field>
+        <Field label="Slug / URL" hint="Si lo dejas vacio, se genera automaticamente."><input className="input-dark" value={f.slug} onChange={e=>setF({...f,slug:e.target.value})} placeholder="opcional"/></Field>
+        <Field label="Icono / emoji"><input className="input-dark text-2xl" value={f.icon} onChange={e=>setF({...f,icon:e.target.value})} placeholder="🕶️" maxLength={12}/></Field>
+        <Field label="Orden"><input type="number" className="input-dark" value={f.sortOrder} onChange={e=>setF({...f,sortOrder:Number(e.target.value)})}/></Field>
+        <button className="btn-ember justify-center self-end" onClick={()=>save.mutate(f)}>Guardar</button>
+      </div>
+      <div className="mt-5 grid gap-4 lg:grid-cols-[minmax(0,1fr)_280px]">
+        <div>
+          <Field label="Imagen de categoria opcional" hint="Si no subes imagen, el cuadro conserva el fondo oscuro actual.">
+            <input type="file" accept="image/*" className="input-dark" onChange={e=>pickImage(e.target.files?.[0])}/>
+          </Field>
+          <div className="mt-3 flex flex-wrap gap-2">
+            {f.imageUrl&&<button type="button" className="btn-ghost rounded-full px-4 py-2 text-xs text-red-200" onClick={()=>setF({...f,imageUrl:''})}>Quitar imagen</button>}
+            {f.imageUrl&&<button type="button" className="btn-ghost rounded-full px-4 py-2 text-xs" onClick={()=>setCropSource(f.imageUrl)}>Recortar de nuevo</button>}
+          </div>
+        </div>
+        <div className="overflow-hidden rounded-[1.5rem] border border-white/10 bg-[#141414] aspect-[4/3]">
+          {f.imageUrl?<img src={f.imageUrl} alt={f.name||'Categoria'} className="h-full w-full object-cover"/>:<div className="grid h-full place-items-center text-center"><span className="text-5xl">{f.icon||'🕶️'}</span><p className="mt-2 text-xs uppercase tracking-[.18em] text-white/35">Sin imagen</p></div>}
+        </div>
+      </div>
+    </Panel>
+    <Panel title="Categorias actuales">
+      {data.map((c:any)=><div key={c.id} className="mb-3 flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-black/30 p-4">
+        <div className="flex items-center gap-4"><span className="grid h-16 w-20 shrink-0 place-items-center overflow-hidden rounded-2xl bg-white/10 text-2xl">{c.imageUrl?<img src={c.imageUrl} alt={c.name} className="h-full w-full object-cover"/>:(c.icon||'🕶️')}</span><div><b>{c.name}</b><p className="text-sm text-white/45">/{c.slug} · {c._count?.products||0} productos · orden {c.sortOrder} · {c.imageUrl?'con imagen':'fondo oscuro'}</p></div></div>
+        <div className="flex gap-2"><button className="rounded-full bg-white/10 px-4 py-2 text-sm" onClick={()=>setF({id:c.id,name:c.name,slug:c.slug,icon:c.icon||'🕶️',sortOrder:c.sortOrder||0,imageUrl:c.imageUrl||''})}>Editar</button><button className="rounded-full bg-red-500/10 px-4 py-2 text-sm text-red-200" onClick={()=>del.mutate(c.id)}>Eliminar</button></div>
+      </div>)}
+      {!data.length&&<Empty text="Aun no has creado categorias."/>}
+    </Panel>
+  </div>;
+}
+
+
+function OverviewEnhanced({data,setTab}:any){
+  const finance=data.finance||{};
+  const recentOrders=Array.isArray(data.recentOrders)?data.recentOrders.slice(0,6):[];
+  const quickActions=[
+    {label:'Registrar venta',tab:'sales',icon:<Wallet size={18}/>,detail:'Ventas fisicas, WhatsApp o transferencia'},
+    {label:'Crear producto',tab:'products',icon:<Plus size={18}/>,detail:'Inventario, imagenes y opciones'},
+    {label:'Revisar pedidos',tab:'orders',icon:<ShoppingBag size={18}/>,detail:'Estados, envio y tracking'},
+    {label:'Responder ayuda',tab:'support',icon:<LifeBuoy size={18}/>,detail:'Tickets y mensajes del cliente'},
+  ];
+  return <div className="space-y-6">
+    <UrgentTasksPanel data={data} setTab={setTab}/>
+    <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+      <Stat title="Ingresos" value={money(data.revenue)} detail="Ventas registradas"/>
+      <Stat title="Pedidos 24h" value={data.ordersLast24} detail="Ordenes recientes"/>
+      <Stat title="Productos" value={data.products} detail={(data.lowStock||0)+' con stock bajo'}/>
+      <Stat title="Margen" value={(finance.margin||0)+'%'} detail={money(finance.totalProfit||0)+' ganancia estimada'}/>
+    </div>
+    <div className="grid gap-6 xl:grid-cols-[1fr_.85fr]">
+      <Panel title="Acciones rapidas" action={<span className="admin-count-pill"><Activity size={15}/> Operacion</span>}>
+        <div className="grid gap-3 sm:grid-cols-2">{quickActions.map(action=><button key={action.label} type="button" className="admin-quick-action" onClick={()=>setTab(action.tab)}>
+          <span>{action.icon}</span><b>{action.label}</b><p>{action.detail}</p>
+        </button>)}</div>
+      </Panel>
+      <SystemHealthPanel/>
+    </div>
+    <div className="grid gap-6 xl:grid-cols-[1fr_.95fr]">
+      <Panel title="Ordenes de las ultimas 24 horas" action={<button type="button" className="admin-tiny-action" onClick={()=>setTab('orders')}>Ver pedidos</button>}>
+        {recentOrders.length?recentOrders.map((order:any)=><button type="button" key={order.id} className="admin-list-row mb-3 flex w-full justify-between gap-4 rounded-2xl px-4 py-3 text-left" onClick={()=>setTab('orders')}>
+          <div><b>{order.user?.name||'Cliente'}</b><p className="admin-muted text-sm">{statusLabels[order.status]||order.status} - {order.country||'sin pais'} - {new Date(order.createdAt).toLocaleString('es-DO')}</p></div>
+          <span className="font-black">{money(order.total,order.currency==='USD'?'US$':'RD$')}</span>
+        </button>):<Empty text="No hay pedidos en las ultimas 24 horas."/>}
+      </Panel>
+      <NotificationDashboardPanel/>
+    </div>
+    <div className="grid gap-6 xl:grid-cols-2">
+      <Panel title="Grafico circular de operacion"><Donut items={[{label:'Pedidos',value:data.orders||0,color:'#fb923c'},{label:'Usuarios',value:data.users||0,color:'#facc15'},{label:'Productos',value:data.products||0,color:'#ef4444'},{label:'Drops activos',value:data.activeDrops||0,color:'#a855f7'}]}/></Panel>
+      <Panel title="Recomendaciones inteligentes">{data.aiRecommendations?.length?data.aiRecommendations.map((item:string,index:number)=><div key={index} className="admin-recommendation mb-3 rounded-2xl p-4 text-sm">{item}</div>):<Empty text="Aun no hay suficientes datos para recomendaciones profundas."/>}</Panel>
+    </div>
+  </div>
+}
+
+function ProductsTabV2(){
+  const qc=useQueryClient();
+  const [q,setQ]=useState('');
+  const [status,setStatus]=useState('');
+  const {data=[]}=useQuery({queryKey:['admin-products',q,status],queryFn:()=>api<any[]>('/admin/products?q='+encodeURIComponent(q)+'&status='+encodeURIComponent(status))});
+  const {data:cats=[]}=useQuery({queryKey:['admin-categories'],queryFn:()=>api<any[]>('/admin/categories')});
+  const variantFieldOptions=[{key:'color',label:'Color',placeholder:'Negro, dorado, transparente'},{key:'size',label:'Tamaño / talla',placeholder:'S, M, L, 52mm'},{key:'model',label:'Modelo',placeholder:'Aviador, rectangular, oversize'},{key:'lens',label:'Lente',placeholder:'Polarizada, UV400, degradada'}];
+  const defaultVariantFields={color:true,size:false,model:false,lens:false};
+  const blank={id:'',name:'',slug:'',description:'',price:0,priceUsd:0,cost:0,discountActive:false,discountType:'NONE',discountValue:0,discountLabel:'',discountStartsAt:'',discountEndsAt:'',stock:0,lowStockThreshold:5,imageUrl:'',images:[] as any[],status:'NEW',categoryId:'',variantMode:false,variantFields:{...defaultVariantFields},variants:[] as any[]};
+  const [f,setF]=useState<any>(blank);
+  const [productFormOpen,setProductFormOpen]=useState(true);
+  const productFormRef=useRef<HTMLDivElement|null>(null);
+  const imageList=(item:any)=>{const list=Array.isArray(item?.images)?item.images:[];const normalized=[...list].filter((image:any)=>image?.url).sort((a:any,b:any)=>(a.sortOrder??0)-(b.sortOrder??0)).map((image:any,index:number)=>({url:image.url,alt:image.alt||item?.name||'',sortOrder:index}));if(!normalized.length&&item?.imageUrl)normalized.push({url:item.imageUrl,alt:item?.name||'',sortOrder:0});return normalized;};
+  const syncImages=(item:any,next:any[])=>{const normalized=next.filter((image:any)=>image?.url).map((image:any,index:number)=>({url:image.url,alt:image.alt||item.name||'',sortOrder:index}));return {...item,images:normalized,imageUrl:normalized[0]?.url||''};};
+  const currentImages=imageList(f);
+  const updateImages=(next:any[])=>setF((prev:any)=>syncImages(prev,next));
+  const moveImage=(index:number,step:number)=>{const next=[...currentImages];const target=index+step;if(target<0||target>=next.length)return;[next[index],next[target]]=[next[target],next[index]];updateImages(next);};
+  const makePrimary=(index:number)=>{const next=[...currentImages];const [picked]=next.splice(index,1);updateImages([picked,...next]);};
+  const removeImage=(index:number)=>updateImages(currentImages.filter((_:any,i:number)=>i!==index));
+  const addFiles=async(files:FileList|null)=>{if(!files?.length)return;const uploaded=await Promise.all(Array.from(files).map(async(file,index)=>({url:await readFile(file),alt:f.name,sortOrder:currentImages.length+index})));updateImages([...currentImages,...uploaded]);};
+  const setPrimaryUrl=(url:string)=>{const rest=currentImages.slice(1);setF((prev:any)=>syncImages({...prev,imageUrl:url},url?[{url,alt:prev.name,sortOrder:0},...rest]:rest));};
+  const normalizeFormVariants=(rows:any[],product:any)=>{const enabled={...defaultVariantFields,...(product?.variantFields||{})};return (Array.isArray(rows)?rows:[]).map((variant:any,index:number)=>{const price=Number(variant?.price||0);const prepared={...variant,color:enabled.color?variant?.color:'',size:enabled.size?variant?.size:'',model:enabled.model?variant?.model:'',lens:enabled.lens?variant?.lens:''};const name=String(prepared.name||'').trim()||variantLabel(prepared);return {id:String(prepared.id||'').trim()||undefined,name,sku:String(prepared.sku||'').trim(),color:String(prepared.color||'').trim(),size:String(prepared.size||'').trim(),model:String(prepared.model||'').trim(),lens:String(prepared.lens||'').trim(),price,priceUsd:price>0?rdToUsd(price):0,stock:Math.max(0,Math.floor(Number(prepared.stock||0))),imageUrl:String(prepared.imageUrl||'').trim(),active:prepared.active!==false,sortOrder:Number.isFinite(Number(prepared.sortOrder))?Number(prepared.sortOrder):index};}).filter((variant:any)=>variant.name!=='Opcion'||variant.sku||variant.color||variant.size||variant.model||variant.lens||variant.imageUrl||variant.stock>0);};
+  const preparePayload=(payload:any)=>{const images=imageList(payload);const variantMode=Boolean(payload.variantMode);const variants=variantMode?normalizeFormVariants(payload.variants,payload):[];const {variants:_variants,variantMode:_variantMode,variantFields:_variantFields,category:_category,categoryName:_categoryName,discount:_discount,mainImage:_mainImage,orderItems:_orderItems,salePrice:_salePrice,salePriceUsd:_salePriceUsd,comparePrice:_comparePrice,comparePriceUsd:_comparePriceUsd,profit:_profit,margin:_margin,isOutOfStock:_isOutOfStock,isNew:_isNew,isBestSeller:_isBestSeller,isLimitedDrop:_isLimitedDrop,...base}=payload;return {...base,images,imageUrl:images[0]?.url||payload.imageUrl,priceUsd:rdToUsd(payload.price),categoryId:payload.categoryId||cats[0]?.id,id:undefined,variants};};
+  const save=useMutation({mutationFn:(payload:any)=>api(payload.id?'/admin/products/'+payload.id:'/admin/products',{method:payload.id?'PATCH':'POST',body:JSON.stringify(preparePayload(payload))}),onSuccess:()=>{qc.invalidateQueries({queryKey:['admin-products']});toast.success('Producto guardado');setF(blank)},onError:(e:any)=>toast.error(e.message)});
+  const del=useMutation({mutationFn:(id:string)=>api('/admin/products/'+id,{method:'DELETE'}),onSuccess:()=>{qc.invalidateQueries({queryKey:['admin-products']});toast.success('Producto eliminado o marcado agotado')}});
+  const blankVariant={id:'',name:'',sku:'',color:'',size:'',model:'',lens:'',price:0,priceUsd:0,stock:0,imageUrl:'',active:true,sortOrder:0};
+  const blankVariantFor=(product:any)=>({...blankVariant,price:Number(product?.price||0),priceUsd:Number(product?.priceUsd||rdToUsd(product?.price||0))});
+  const hydrateProductForEdit=(product:any)=>{const variants=(Array.isArray(product?.variants)?product.variants:[]).filter((variant:any)=>variant.active!==false).map((variant:any,index:number)=>({...blankVariant,...variant,price:Number(variant.price||product.price||0),priceUsd:Number(variant.priceUsd||rdToUsd(variant.price||product.price||0)),stock:Number(variant.stock||0),sortOrder:Number.isFinite(Number(variant.sortOrder))?Number(variant.sortOrder):index,active:variant.active!==false}));const variantFields={color:variants.length?variants.some((variant:any)=>Boolean(variant.color)):true,size:variants.some((variant:any)=>Boolean(variant.size)),model:variants.some((variant:any)=>Boolean(variant.model)),lens:variants.some((variant:any)=>Boolean(variant.lens))};return syncImages({...product,priceUsd:rdToUsd(product.price),lowStockThreshold:product.lowStockThreshold??5,discountType:product.discountType||'NONE',discountValue:product.discountValue||0,discountLabel:product.discountLabel||'',discountStartsAt:dateInputValue(product.discountStartsAt),discountEndsAt:dateInputValue(product.discountEndsAt),variantMode:variants.length>0,variantFields,variants},imageList(product));};
+  const editProduct=(product:any)=>{setProductFormOpen(true);setF(hydrateProductForEdit(product));window.setTimeout(()=>productFormRef.current?.scrollIntoView({behavior:'smooth',block:'start'}),40);};
+  const [variantProduct,setVariantProduct]=useState<any|null>(null);
+  const [variantForm,setVariantForm]=useState<any>(blankVariant);
+  const activeVariantProduct=variantProduct?(()=>{const fresh=data.find((item:any)=>item.id===variantProduct.id)||variantProduct;return {...fresh,variants:Array.isArray(fresh.variants)?fresh.variants.filter((variant:any)=>variant.active!==false):[]};})():null;
+  const formVariants=Array.isArray(f.variants)?f.variants:[];
+  const visibleVariantFields=variantFieldOptions.filter(option=>Boolean((f.variantFields||defaultVariantFields)[option.key]));
+  const inlineVariantReady=!f.variantMode||formVariants.some((variant:any)=>[variant.name,variant.sku,variant.color,variant.size,variant.model,variant.lens,variant.imageUrl].some(value=>String(value||'').trim())||Number(variant.stock||0)>0);
+  const productWarnings=useMemo(()=>{
+    const warnings:any[]=[];
+    const price=Number(f.price||0);
+    const cost=Number(f.cost||0);
+    const stock=Number(f.stock||0);
+    const normalizedVariants=f.variantMode?normalizeFormVariants(formVariants,f):[];
+    const totalVariantStock=normalizedVariants.reduce((sum:number,variant:any)=>sum+Number(variant.stock||0),0);
+    if(String(f.name||'').trim()&&!currentImages.length)warnings.push({level:'critical',title:'Imagen pendiente',body:'Agrega al menos una imagen antes de publicar. Sin imagen el cliente no entiende el producto.'});
+    if(f.status==='ACTIVE'&&stock<=0&&(!f.variantMode||totalVariantStock<=0))warnings.push({level:'critical',title:'Stock en cero',body:'El producto esta activo, pero no tiene unidades disponibles.'});
+    if(price>0&&cost>0&&price<=cost)warnings.push({level:'warning',title:'Margen en riesgo',body:'El precio de venta es igual o menor al costo de compra.'});
+    if(f.discountActive&&cost>0&&discountPreview(f).salePrice<=cost)warnings.push({level:'warning',title:'Oferta sin ganancia',body:'El descuento deja el precio final igual o menor que el costo.'});
+    if(f.variantMode&&!normalizedVariants.length)warnings.push({level:'warning',title:'Opciones incompletas',body:'Activa opciones solo si al menos una fila tiene color, SKU, imagen o stock.'});
+    if(f.slug&&data.some((product:any)=>product.slug===f.slug&&product.id!==f.id))warnings.push({level:'critical',title:'Slug repetido',body:'Ya existe otro producto con esta URL. Cambiala para evitar enlaces rotos.'});
+    return warnings;
+  },[f,formVariants,currentImages.length,data]);
+  const setVariantMode=(enabled:boolean)=>setF((prev:any)=>({...prev,variantMode:enabled,variantFields:prev.variantFields||{...defaultVariantFields},variants:enabled&&!(prev.variants||[]).length?[blankVariantFor(prev)]:prev.variants||[]}));
+  const setVariantFieldVisibility=(key:string,checked:boolean)=>setF((prev:any)=>({...prev,variantFields:{...defaultVariantFields,...(prev.variantFields||{}),[key]:checked}}));
+  const updateFormVariant=(index:number,patch:any)=>setF((prev:any)=>({...prev,variants:(Array.isArray(prev.variants)?prev.variants:[]).map((variant:any,i:number)=>i===index?{...variant,...patch}:variant)}));
+  const addFormVariant=()=>setF((prev:any)=>{const rows=Array.isArray(prev.variants)?prev.variants:[];return {...prev,variantMode:true,variantFields:prev.variantFields||{...defaultVariantFields},variants:[...rows,{...blankVariantFor(prev),sortOrder:rows.length}]};});
+  const removeFormVariant=(index:number)=>setF((prev:any)=>({...prev,variants:(Array.isArray(prev.variants)?prev.variants:[]).filter((_:any,i:number)=>i!==index).map((variant:any,i:number)=>({...variant,sortOrder:i}))}));
+  const variantReady=Boolean([variantForm.name,variantForm.color,variantForm.size,variantForm.model,variantForm.lens].some(value=>String(value||'').trim()));
+  const saveVariant=useMutation({mutationFn:(payload:any)=>api(payload.id?'/admin/product-variants/'+payload.id:'/admin/products/'+activeVariantProduct.id+'/variants',{method:payload.id?'PATCH':'POST',body:JSON.stringify({...payload,id:undefined,price:Number(payload.price||activeVariantProduct?.price||0),priceUsd:Number(payload.priceUsd||rdToUsd(payload.price||activeVariantProduct?.price||0)),stock:Number(payload.stock||0),sortOrder:Number(payload.sortOrder||0),active:Boolean(payload.active)})}),onSuccess:()=>{qc.invalidateQueries({queryKey:['admin-products']});toast.success('Opcion guardada');if(activeVariantProduct)setVariantForm(blankVariantFor(activeVariantProduct));},onError:(e:any)=>toast.error(e.message)});
+  const deleteVariant=useMutation({mutationFn:(id:string)=>api('/admin/product-variants/'+id,{method:'DELETE'}),onSuccess:(_:any,id:string)=>{qc.setQueriesData({queryKey:['admin-products']},(current:any)=>Array.isArray(current)?current.map((product:any)=>product.id===activeVariantProduct?.id?{...product,variants:(product.variants||[]).filter((variant:any)=>variant.id!==id)}:product):current);qc.invalidateQueries({queryKey:['admin-products']});setVariantProduct((current:any)=>current?{...current,variants:(current.variants||[]).filter((variant:any)=>variant.id!==id)}:current);toast.success('Opcion eliminada');if(activeVariantProduct)setVariantForm(blankVariantFor(activeVariantProduct));},onError:(e:any)=>toast.error(e.message)});
+
+  return <div>
+    <Toolbar title="Productos" subtitle="Controla precios, costo, inventario, galería, descuentos y opciones del producto." search={q} setSearch={setQ}>
+      <Field label="Filtrar por estado"><AdminSelect className="min-w-[210px]" value={status} onChange={setStatus} options={[{value:'',label:'Todos'},...['ACTIVE','NEW','BESTSELLER','SOLD_OUT','UPCOMING','LIMITED_DROP'].map(x=>({value:x,label:x}))]}/></Field>
+    </Toolbar>
+    {!cats.length&&<div className="mb-5 rounded-2xl border border-yellow-400/20 bg-yellow-500/10 p-4 text-sm text-yellow-100">Primero crea una categoría para poder publicar productos.</div>}
+    {productFormOpen&&productWarnings.length>0&&<div className="mb-5 grid gap-3 md:grid-cols-2">{productWarnings.map((warning:any)=><div key={warning.title} className={'admin-preflight-card '+urgentTaskClass(warning.level)}>
+      <span>{warning.level==='critical'?<AlertTriangle size={18}/>:<Bell size={18}/>}</span><div><b>{warning.title}</b><p>{warning.body}</p></div>
+    </div>)}</div>}
+    <div ref={productFormRef}><Panel title={f.id?'Editar producto':'Crear producto'} action={<button type="button" className="btn-ghost rounded-full px-4 py-2 text-xs" onClick={()=>setProductFormOpen(value=>!value)}><ChevronDown size={15} className={productFormOpen?'rotate-180 transition':'transition'}/>{productFormOpen?'Minimizar':'Mostrar'}</button>}>
+      {productFormOpen?<div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <Field label="Nombre del producto"><input className="input-dark" value={f.name} onChange={e=>setF({...f,name:e.target.value,slug:f.slug||slugify(e.target.value)})}/></Field>
+        <Field label="Slug / URL"><input className="input-dark" value={f.slug} onChange={e=>setF({...f,slug:e.target.value})}/></Field>
+        <Field label="Precio RD$" hint="El precio US$ se calcula automático con dólar a RD$48."><input type="number" step="0.01" className="input-dark" value={f.price} onChange={e=>{const price=Number(e.target.value);setF({...f,price,priceUsd:rdToUsd(price)})}}/></Field>
+        <Field label="Precio US$" hint={'Calculado: RD$ '+Number(f.price||0).toLocaleString('es-DO')+' / 48 = US$ '+rdToUsd(f.price).toFixed(2)}><input type="number" step="0.01" readOnly className="input-dark opacity-80" value={Number(f.priceUsd||0).toFixed(2)}/></Field>
+        <Field label="Descuento activo" hint="Actívalo solo cuando quieras que el cliente vea precio rebajado."><label className="flex min-h-11 items-center gap-3 rounded-xl border border-white/10 bg-white/[.04] px-3 text-sm text-white/70"><input type="checkbox" checked={Boolean(f.discountActive)} onChange={e=>setF({...f,discountActive:e.target.checked,discountType:e.target.checked&&f.discountType==='NONE'?'PERCENT':f.discountType})}/> Activar oferta</label></Field>
+        <Field label="Tipo de descuento"><AdminSelect value={f.discountType||'NONE'} onChange={value=>setF({...f,discountType:value,discountActive:value!=='NONE'})} options={discountTypes.map(x=>({value:x.value,label:x.label}))}/></Field>
+        <Field label={f.discountType==='PERCENT'?'Porcentaje de descuento':f.discountType==='FIXED_PRICE'?'Precio final RD$':'Monto a descontar RD$'} hint={f.discountType==='PERCENT'?'Ej: 20 = 20% menos.':'Ej: 150 descuenta RD$150 o define el precio final.'}><input type="number" step="0.01" className="input-dark" value={f.discountValue||0} onChange={e=>setF({...f,discountValue:Number(e.target.value)})}/></Field>
+        <Field label="Etiqueta de temporada"><input className="input-dark" value={f.discountLabel||''} onChange={e=>setF({...f,discountLabel:e.target.value})} placeholder="Black Friday, Drop especial, Verano..."/></Field>
+        <Field label="Inicio del descuento"><input type="datetime-local" className="input-dark" value={dateInputValue(f.discountStartsAt)} onChange={e=>setF({...f,discountStartsAt:e.target.value})}/></Field>
+        <Field label="Fin del descuento"><input type="datetime-local" className="input-dark" value={dateInputValue(f.discountEndsAt)} onChange={e=>setF({...f,discountEndsAt:e.target.value})}/></Field>
+        <div className="rounded-2xl border border-orange-400/20 bg-orange-500/10 p-4 text-sm text-orange-50 xl:col-span-2">{(()=>{const preview=discountPreview(f);return f.discountActive&&f.discountType!=='NONE'?<>Oferta: <b>{money(preview.salePrice)}</b> · ahorro {money(preview.save)} · {preview.percent}% menos</>:<>Sin descuento activo. El cliente verá {money(f.price)}.</>})()}</div>
+        <Field label="Costo de compra RD$"><input type="number" className="input-dark" value={f.cost} onChange={e=>setF({...f,cost:Number(e.target.value)})}/></Field>
+        <Field label="Stock disponible"><input type="number" className="input-dark" value={f.stock} onChange={e=>setF({...f,stock:Number(e.target.value)})}/></Field>
+        <Field label="Umbral stock bajo"><input type="number" className="input-dark" value={f.lowStockThreshold??5} onChange={e=>setF({...f,lowStockThreshold:Number(e.target.value)})}/></Field>
+        <Field label="Estado"><AdminSelect value={f.status} onChange={value=>setF({...f,status:value})} options={['ACTIVE','NEW','BESTSELLER','SOLD_OUT','UPCOMING','LIMITED_DROP'].map(x=>({value:x,label:x}))}/></Field>
+        <Field label="Categoría"><AdminSelect value={f.categoryId||cats[0]?.id||''} onChange={value=>setF({...f,categoryId:value})} options={cats.map((c:any)=>({value:c.id,label:<>{c.icon} {c.name}</>}))}/></Field>
+        <Field label="Subir varias imágenes" hint="El orden define lo que verá el cliente. La imagen 2 aparece al pasar el cursor en catálogo."><input type="file" accept="image/*" multiple className="input-dark" onChange={async e=>{const input=e.currentTarget;await addFiles(input.files);input.value=''}}/></Field>
+        <Field label="URL de imagen principal"><input className="input-dark" value={currentImages[0]?.url||f.imageUrl||''} onChange={e=>setPrimaryUrl(e.target.value)}/></Field>
+        <div className="md:col-span-2"><Field label="Descripción"><textarea className="input-dark min-h-[110px]" value={f.description} onChange={e=>setF({...f,description:e.target.value})}/></Field></div>
+        {currentImages.length>0&&<div className="md:col-span-2 xl:col-span-4"><span className="mb-3 block text-xs font-bold uppercase tracking-[.12em] text-white/55">Orden de imágenes</span><div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">{currentImages.map((image:any,index:number)=><div key={image.url+'-'+index} className="overflow-hidden rounded-3xl border border-white/10 bg-black/25"><div className="relative h-48 bg-white/5"><img src={image.url} alt={image.alt||f.name} className="h-full w-full object-cover"/><span className="absolute left-3 top-3 rounded-full bg-orange-500 px-3 py-1 text-xs font-black text-black">#{index+1}</span></div><div className="space-y-2 p-3"><input className="input-dark text-xs" value={image.alt||''} placeholder="Texto alternativo" onChange={e=>updateImages(currentImages.map((img:any,i:number)=>i===index?{...img,alt:e.target.value}:img))}/><div className="grid grid-cols-2 gap-2"><button type="button" className="rounded-full bg-white/10 px-3 py-2 text-xs" onClick={()=>moveImage(index,-1)} disabled={index===0}>Subir</button><button type="button" className="rounded-full bg-white/10 px-3 py-2 text-xs" onClick={()=>moveImage(index,1)} disabled={index===currentImages.length-1}>Bajar</button><button type="button" className="rounded-full bg-orange-500/20 px-3 py-2 text-xs text-orange-100" onClick={()=>makePrimary(index)} disabled={index===0}>Primera</button><button type="button" className="rounded-full bg-red-500/10 px-3 py-2 text-xs text-red-200" onClick={()=>removeImage(index)}>Quitar</button></div></div></div>)}</div></div>}
+        <div className="md:col-span-2 xl:col-span-4 rounded-3xl border border-orange-400/20 bg-orange-500/[.06] p-4 shadow-[0_20px_70px_rgba(249,115,22,.08)]">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <label className="flex min-h-11 items-center gap-3 rounded-2xl border border-white/10 bg-black/25 px-4 text-sm font-bold text-white"><input type="checkbox" checked={Boolean(f.variantMode)} onChange={e=>setVariantMode(e.target.checked)}/> Este producto tiene opciones</label>
+            <span className="rounded-full border border-orange-400/20 bg-black/30 px-3 py-1 text-xs font-black uppercase tracking-[.12em] text-orange-100">{formVariants.length} opciones</span>
+          </div>
+          <p className="mt-2 text-xs text-white/45">Activa solo la información que verá el cliente. Cada fila puede tener stock, precio, SKU e imagen propia.</p>
+          {f.variantMode&&<div className="mt-4 space-y-4">
+            <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">{variantFieldOptions.map(option=><label key={option.key} className={'flex min-h-11 items-center gap-3 rounded-2xl border px-3 text-sm transition '+((f.variantFields||defaultVariantFields)[option.key]?'border-orange-400/35 bg-orange-500/15 text-orange-50':'border-white/10 bg-black/25 text-white/55')}><input type="checkbox" checked={Boolean((f.variantFields||defaultVariantFields)[option.key])} onChange={e=>setVariantFieldVisibility(option.key,e.target.checked)}/> Mostrar {option.label.toLowerCase()}</label>)}</div>
+            <div className="space-y-3">{formVariants.map((variant:any,index:number)=><div key={(variant.id||'new')+'-'+index} className="rounded-3xl border border-white/10 bg-black/25 p-4">
+              <div className="mb-3 flex flex-wrap items-center justify-between gap-2"><b>Opcion #{index+1}</b><button type="button" className="rounded-full bg-red-500/10 px-3 py-2 text-xs text-red-200" onClick={()=>removeFormVariant(index)}>Quitar</button></div>
+              <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+                <Field label="Nombre visible"><input className="input-dark" value={variant.name||''} onChange={e=>updateFormVariant(index,{name:e.target.value})} placeholder="Opcional"/></Field>
+                {visibleVariantFields.map(option=><Field key={option.key} label={option.label}><input className="input-dark" value={variant[option.key]||''} onChange={e=>updateFormVariant(index,{[option.key]:e.target.value})} placeholder={option.placeholder}/></Field>)}
+                <Field label="SKU interno"><input className="input-dark" value={variant.sku||''} onChange={e=>updateFormVariant(index,{sku:e.target.value})} placeholder="MB-001"/></Field>
+                <Field label="Stock propio"><input type="number" className="input-dark" value={variant.stock||0} onChange={e=>updateFormVariant(index,{stock:Number(e.target.value)})}/></Field>
+                <Field label="Precio RD$ opcional" hint="0 usa el precio base."><input type="number" step="0.01" className="input-dark" value={variant.price||0} onChange={e=>{const price=Number(e.target.value);updateFormVariant(index,{price,priceUsd:rdToUsd(price)})}}/></Field>
+                <Field label="Precio US$"><input type="number" step="0.01" readOnly className="input-dark opacity-80" value={Number(variant.priceUsd||rdToUsd(variant.price||0)).toFixed(2)}/></Field>
+                <Field label="Subir imagen"><input type="file" accept="image/*" className="input-dark" onChange={async e=>{const file=e.target.files?.[0];if(file)updateFormVariant(index,{imageUrl:await readFile(file)})}}/></Field>
+                <Field label="URL de imagen"><input className="input-dark" value={variant.imageUrl||''} onChange={e=>updateFormVariant(index,{imageUrl:e.target.value})}/></Field>
+                <label className="flex min-h-11 items-center gap-3 rounded-xl border border-white/10 bg-white/[.04] px-3 text-sm text-white/70"><input type="checkbox" checked={variant.active!==false} onChange={e=>updateFormVariant(index,{active:e.target.checked})}/> Opcion activa</label>
+              </div>
+            </div>)}</div>
+            <div className="flex flex-wrap items-center gap-3"><button type="button" className="btn-ghost rounded-full px-4 py-2" onClick={addFormVariant}>+ Agregar opcion</button>{!inlineVariantReady&&<span className="text-xs text-red-200">Agrega al menos una opcion con color, talla, modelo, lente, SKU, imagen o stock.</span>}</div>
+          </div>}
+        </div>
+        <button disabled={!cats.length||!currentImages.length||!inlineVariantReady} className="btn-ember justify-center self-end disabled:opacity-40" onClick={()=>save.mutate(f)}>{f.id?'Guardar cambios':'Crear producto'}</button>
+        {f.id&&<button className="btn-ghost justify-center self-end" onClick={()=>setF(blank)}>Cancelar edición</button>}
+      </div>:<div className="rounded-2xl border border-dashed border-white/10 bg-black/20 p-4 text-sm text-white/50">Formulario minimizado. Presiona Mostrar para crear o editar productos.</div>}
+    </Panel></div>
+
+    {activeVariantProduct&&<Panel title={'Opciones del producto · '+activeVariantProduct.name}>
+      <div className="mb-5 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-orange-400/20 bg-orange-500/10 p-4 text-sm text-orange-50"><span>Usa opciones para color, tamaño, modelo, tipo de lente o talla. Cada opcion maneja su propio stock real.</span><button type="button" className="rounded-full bg-black/30 px-4 py-2 text-xs" onClick={()=>{setVariantProduct(null);setVariantForm(blankVariant)}}>Cerrar opciones</button></div>
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <Field label="Nombre visible" hint="Opcional: si lo dejas vacío, se arma con color/tamaño/modelo/lente."><input className="input-dark" value={variantForm.name} onChange={e=>setVariantForm({...variantForm,name:e.target.value})} placeholder="Negro / M / Polarizada"/></Field>
+        <Field label="Color"><input className="input-dark" value={variantForm.color||''} onChange={e=>setVariantForm({...variantForm,color:e.target.value})} placeholder="Negro, dorado, transparente"/></Field>
+        <Field label="Tamaño / talla"><input className="input-dark" value={variantForm.size||''} onChange={e=>setVariantForm({...variantForm,size:e.target.value})} placeholder="S, M, L, 52mm"/></Field>
+        <Field label="Modelo"><input className="input-dark" value={variantForm.model||''} onChange={e=>setVariantForm({...variantForm,model:e.target.value})} placeholder="Aviador, rectangular, oversize"/></Field>
+        <Field label="Lente"><input className="input-dark" value={variantForm.lens||''} onChange={e=>setVariantForm({...variantForm,lens:e.target.value})} placeholder="Polarizada, UV400, degradada"/></Field>
+        <Field label="SKU interno"><input className="input-dark" value={variantForm.sku||''} onChange={e=>setVariantForm({...variantForm,sku:e.target.value})} placeholder="MB-LENTE-NEGRO"/></Field>
+        <Field label="Precio RD$"><input type="number" step="0.01" className="input-dark" value={variantForm.price||0} onChange={e=>{const price=Number(e.target.value);setVariantForm({...variantForm,price,priceUsd:rdToUsd(price)})}}/></Field>
+        <Field label="Precio US$"><input type="number" step="0.01" readOnly className="input-dark opacity-80" value={Number(variantForm.priceUsd||rdToUsd(variantForm.price||0)).toFixed(2)}/></Field>
+        <Field label="Stock de esta opcion"><input type="number" className="input-dark" value={variantForm.stock||0} onChange={e=>setVariantForm({...variantForm,stock:Number(e.target.value)})}/></Field>
+        <Field label="Orden"><input type="number" className="input-dark" value={variantForm.sortOrder||0} onChange={e=>setVariantForm({...variantForm,sortOrder:Number(e.target.value)})}/></Field>
+        <Field label="Subir imagen de opcion"><input type="file" accept="image/*" className="input-dark" onChange={async e=>{const file=e.target.files?.[0];if(file)setVariantForm({...variantForm,imageUrl:await readFile(file)})}}/></Field>
+        <Field label="URL de imagen"><input className="input-dark" value={variantForm.imageUrl||''} onChange={e=>setVariantForm({...variantForm,imageUrl:e.target.value})}/></Field>
+        <label className="flex min-h-11 items-center gap-3 rounded-xl border border-white/10 bg-white/[.04] px-3 text-sm text-white/70"><input type="checkbox" checked={Boolean(variantForm.active)} onChange={e=>setVariantForm({...variantForm,active:e.target.checked})}/> Opcion activa</label>
+        <button disabled={!variantReady} type="button" className="btn-ember justify-center disabled:opacity-40" onClick={()=>saveVariant.mutate({...variantForm,name:variantForm.name||variantLabel(variantForm)})}>{variantForm.id?'Guardar opcion':'Crear opcion'}</button>
+        {variantForm.id&&<button type="button" className="btn-ghost justify-center" onClick={()=>setVariantForm(blankVariantFor(activeVariantProduct))}>Nueva opcion</button>}
+      </div>
+      <div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-3">{(activeVariantProduct.variants||[]).map((variant:any)=><div key={variant.id} className={'rounded-2xl border p-4 '+(variant.active?'border-white/10 bg-black/25':'border-red-400/20 bg-red-500/10')}><div className="flex gap-3">{variant.imageUrl&&<img src={variant.imageUrl} alt={variantLabel(variant)} className="h-16 w-16 rounded-xl object-cover"/>}<div className="min-w-0 flex-1"><b>{variantLabel(variant)}</b><p className="text-xs text-white/45">{[variant.color,variant.size,variant.model,variant.lens].filter(Boolean).join(' · ')||'Sin atributos'} · SKU {variant.sku||'sin SKU'}</p><p className="text-xs text-white/45">stock {variant.stock} · orden {variant.sortOrder}</p><p className="text-sm text-orange-100">{money(variant.price||activeVariantProduct.price)} · US {money(variant.priceUsd||activeVariantProduct.priceUsd,'US$')}</p></div></div><div className="mt-3 flex gap-2"><button type="button" className="rounded-full bg-white/10 px-4 py-2 text-xs" onClick={()=>setVariantForm({...blankVariant,...variant,price:variant.price||activeVariantProduct.price,priceUsd:variant.priceUsd||rdToUsd(variant.price||activeVariantProduct.price)})}>Editar</button><button type="button" className="rounded-full bg-red-500/10 px-4 py-2 text-xs text-red-200" onClick={()=>deleteVariant.mutate(variant.id)}>Eliminar</button></div></div>)}{!activeVariantProduct.variants?.length&&<Empty text="Este producto todavia no tiene opciones."/>}</div>
+    </Panel>}
+    <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-3">{data.map((p:any)=>{const images=imageList(p);const activeVariants=Array.isArray(p.variants)?p.variants.filter((variant:any)=>variant.active!==false):[];return <div key={p.id} className="rounded-3xl border border-white/10 bg-white/[.03] p-5">{images[0]?.url&&<img src={images[0].url} className="mb-4 h-64 w-full rounded-3xl object-cover" alt={p.name}/>}<b>{p.name}</b><p className="text-sm text-white/45">{p.category?.name||p.categoryName} · stock disponible {availableStockFor(p)} · {activeVariants.length} opciones · {images.length} imágenes</p><p className="mt-2 text-sm">Venta base {money(p.price)} · Costo {money(p.cost)} · US {money(p.priceUsd,'US$')}</p>{p.discount?.active&&<p className="mt-2 rounded-2xl border border-orange-400/25 bg-orange-500/10 px-3 py-2 text-sm text-orange-50">Oferta {p.discount.label||'activa'}: {money(p.salePrice)} · -{p.discount.percent}%</p>}{activeVariants.length>0&&<div className="mt-3 flex flex-wrap gap-2">{activeVariants.slice(0,4).map((variant:any)=><span key={variant.id} className="rounded-full border border-white/10 bg-white/[.04] px-3 py-1 text-xs text-white/65">{variantLabel(variant)} · stock {variant.stock}</span>)}</div>}{images.length>1&&<div className="mt-3 flex gap-2 overflow-x-auto">{images.slice(0,5).map((image:any,index:number)=><img key={p.id+'-'+index} src={image.url} alt={image.alt||p.name} className="h-14 w-14 shrink-0 rounded-xl object-cover opacity-80"/>)}</div>}<div className="mt-4 flex flex-wrap gap-2"><button className="rounded-full bg-white/10 px-4 py-2 text-sm" onClick={()=>editProduct(p)}>Editar</button><button className="rounded-full bg-orange-500/15 px-4 py-2 text-sm text-orange-100" onClick={()=>{setVariantProduct({...p,variants:activeVariants});setVariantForm(blankVariantFor(p))}}>Opciones</button><button className="rounded-full bg-red-500/10 px-4 py-2 text-sm text-red-200" onClick={()=>del.mutate(p.id)}>Eliminar</button></div></div>})}</div>
+  </div>
+}
+
+function UsersTabV2(){
+  const qc=useQueryClient();
+  const {user}=useAuth();
+  const [q,setQ]=useState('');
+  const [role,setRole]=useState('');
+  const [blocked,setBlocked]=useState('');
+  const [show,setShow]=useState(false);
+  const canReadRoles=Boolean(user&&(user.role==='ADMIN'||user.permissions?.includes('roles')));
+  const {data=[]}=useQuery({queryKey:['admin-users',q,role,blocked],queryFn:()=>api<any[]>(`/admin/users?q=${encodeURIComponent(q)}&role=${encodeURIComponent(role)}&blocked=${encodeURIComponent(blocked)}`)});
+  const {data:roles=[]}=useQuery({queryKey:['admin-user-role-options'],queryFn:()=>api<any[]>('/admin/roles'),enabled:canReadRoles,retry:false});
+  const roleOptions=useMemo(()=>{
+    const map=new Map<string,{slug:string;name:string}>([['CUSTOMER',{slug:'CUSTOMER',name:'Cliente'}],['ADMIN',{slug:'ADMIN',name:'Administrador'}]]);
+    roles.forEach((r:any)=>map.set(r.slug,{slug:r.slug,name:r.name}));
+    return Array.from(map.values());
+  },[roles]);
+  const blank={name:'',email:'',password:'',role:'CUSTOMER',isVerified:true};
+  const [f,setF]=useState<any>(blank);
+  const [productFormOpen,setProductFormOpen]=useState(true);
+  const create=useMutation({mutationFn:(p:any)=>api('/admin/users',{method:'POST',body:JSON.stringify(p)}),onSuccess:()=>{qc.invalidateQueries({queryKey:['admin-users']});toast.success('Usuario creado');setF(blank)},onError:(e:any)=>toast.error(e.message)});
+  const update=useMutation({mutationFn:({id,payload}:any)=>api('/admin/users/'+id,{method:'PATCH',body:JSON.stringify(payload)}),onSuccess:()=>{qc.invalidateQueries({queryKey:['admin-users']});toast.success('Usuario actualizado')},onError:(e:any)=>toast.error(e.message)});
+
+  return <div>
+    <Toolbar title="Usuarios" subtitle="Crea clientes o equipo interno, bloquea cuentas y asigna roles." search={q} setSearch={setQ}>
+      <Field label="Rol">
+        <AdminSelect className="min-w-[190px]" value={role} onChange={setRole} options={[{value:'',label:'Todos'},...roleOptions.map(r=>({value:r.slug,label:r.name}))]}/>
+      </Field>
+      <Field label="Estado">
+        <AdminSelect className="min-w-[170px]" value={blocked} onChange={setBlocked} options={[{value:"",label:"Todos"},{value:"false",label:"Activos"},{value:"true",label:"Bloqueados"}]}/>
+      </Field>
+    </Toolbar>
+    <Panel title="Crear usuario">
+      <div className="grid gap-4 md:grid-cols-5">
+        <Field label="Nombre"><input className="input-dark" value={f.name} onChange={e=>setF({...f,name:e.target.value})}/></Field>
+        <Field label="Correo"><input className="input-dark" value={f.email} onChange={e=>setF({...f,email:e.target.value})}/></Field>
+        <Field label="Contraseña"><input className="input-dark" type={show?'text':'password'} value={f.password} onChange={e=>setF({...f,password:e.target.value})}/></Field>
+        <Field label="Rol">
+          <AdminSelect value={f.role} onChange={value=>setF({...f,role:value})} options={roleOptions.map(r=>({value:r.slug,label:r.name}))}/>
+        </Field>
+        <button className="btn-ember justify-center self-end" onClick={()=>create.mutate(f)}>Crear usuario</button>
+      </div>
+      <button className="mt-3 text-sm text-white/45" onClick={()=>setShow(!show)}>{show?'Ocultar contraseña':'Ver contraseña'}</button>
+    </Panel>
+    <Panel title="Usuarios registrados">
+      {data.map((u:any)=>{
+        const options=roleOptions.some(r=>r.slug===u.role)?roleOptions:[...roleOptions,{slug:u.role,name:u.role}];
+        return <div key={u.id} className="mb-3 grid gap-3 rounded-2xl bg-black/30 p-4 xl:grid-cols-[1fr_auto_auto_auto]">
+          <div>
+            <b>{u.name}</b>
+            <p className="text-sm text-white/45">{u.email} · {u._count?.orders||0} pedidos · {u.blocked?'bloqueado':'activo'}</p>
+            {u.lockedUntil&&<p className="text-xs text-orange-200">Bloqueo temporal hasta {new Date(u.lockedUntil).toLocaleString('es-DO')}</p>}
+          </div>
+          <AdminSelect value={u.role} onChange={value=>update.mutate({id:u.id,payload:{role:value}})} options={options.map(r=>({value:r.slug,label:r.name}))}/>
+          <button className="btn-ghost" onClick={()=>update.mutate({id:u.id,payload:{blocked:!u.blocked,blockedReason:u.blocked?null:'Tu cuenta ha sido bloqueada. Contacta soporte.'}})}>{u.blocked?'Desbloquear':'Bloquear'}</button>
+          <button className="btn-ghost" onClick={()=>update.mutate({id:u.id,payload:{failedLoginAttempts:0,lockedUntil:null}})}>Limpiar intentos</button>
+        </div>
+      })}
+      {!data.length&&<Empty text="No hay usuarios todavía."/>}
+    </Panel>
+  </div>
+}
+
+type PopupPiece='title'|'subtitle'|'body'|'buttons';
+type PopupAlign='left'|'center'|'right';
+const popupBlankV2={...popupBlank,titleAlign:'center',subtitleAlign:'center',bodyAlign:'center',buttonsAlign:'center'};
+const popupPieceLabels:Record<PopupPiece,string>={title:'titulo',subtitle:'subtitulo',body:'texto',buttons:'botones'};
+const popupPieceKeys:Record<PopupPiece,{x:string;y:string;align:string}>={title:{x:'titleX',y:'titleY',align:'titleAlign'},subtitle:{x:'subtitleX',y:'subtitleY',align:'subtitleAlign'},body:{x:'bodyX',y:'bodyY',align:'bodyAlign'},buttons:{x:'buttonsX',y:'buttonsY',align:'buttonsAlign'}};
+function popupPercent(x:number,y:number){return {left:`${Math.max(0,Math.min(100,Number(x||0)))}%`,top:`${Math.max(0,Math.min(100,Number(y||0)))}%`};}
+function popupAlignCss(align:PopupAlign='center'){
+  if(align==='left')return {textAlign:'left' as const,transform:'translateY(-50%)',justifyContent:'flex-start' as const};
+  if(align==='right')return {textAlign:'right' as const,transform:'translate(-100%, -50%)',justifyContent:'flex-end' as const};
+  return {textAlign:'center' as const,transform:'translate(-50%, -50%)',justifyContent:'center' as const};
+}
+const popupPieceWidths:Record<PopupPiece,string>={title:'86%',subtitle:'80%',body:'78%',buttons:'86%'};
+function popupAlignedX(piece:PopupPiece,align:PopupAlign){
+  const width=Number(popupPieceWidths[piece].replace('%',''))||86;
+  const edge=Math.round((100-width)/2);
+  if(align==='left')return edge;
+  if(align==='right')return 100-edge;
+  return 50;
+}
+function PopupFold({title,open,onToggle,children}:{title:string;open:boolean;onToggle:()=>void;children:ReactNode}){
+  return <section className="rounded-[1.35rem] border border-white/10 bg-black/20 p-4"><button type="button" onClick={onToggle} className="flex w-full items-center justify-between gap-3 text-left"><span className="text-sm font-black uppercase tracking-[.16em] text-orange-100">{title}</span><ChevronDown size={18} className={`transition ${open?'rotate-180':''}`}/></button>{open&&<div className="mt-4">{children}</div>}</section>;
+}
+function MarketingPopupsTabV2(){
+  const qc=useQueryClient();
+  const previewRef=useRef<HTMLDivElement|null>(null);
+  const [dragging,setDragging]=useState<PopupPiece|null>(null);
+  const [selectedPiece,setSelectedPiece]=useState<PopupPiece|null>(null);
+  const [folds,setFolds]=useState({primary:true,secondary:false});
+  const {data=[]}=useQuery({queryKey:['admin-popups'],queryFn:()=>api<any[]>('/admin/popups')});
+  const [f,setF]=useState<any>(popupBlankV2);
+  const save=useMutation({mutationFn:(payload:any)=>api(payload.id?`/admin/popups/${payload.id}`:'/admin/popups',{method:payload.id?'PATCH':'POST',body:JSON.stringify({...payload,id:undefined,startsAt:payload.startsAt||null,endsAt:payload.endsAt||null})}),onSuccess:()=>{qc.invalidateQueries({queryKey:['admin-popups']});qc.invalidateQueries({queryKey:['marketing-popup-active']});toast.success('Novedad emergente guardada');setF(popupBlankV2)},onError:(e:any)=>toast.error(e.message)});
+  const del=useMutation({mutationFn:(id:string)=>api('/admin/popups/'+id,{method:'DELETE'}),onSuccess:()=>{qc.invalidateQueries({queryKey:['admin-popups']});qc.invalidateQueries({queryKey:['marketing-popup-active']});toast.success('Novedad eliminada')}});
+  const toggleActive=useMutation({mutationFn:({id,isActive}:any)=>api(`/admin/popups/${id}`,{method:'PATCH',body:JSON.stringify({isActive})}),onSuccess:(_data,vars:any)=>{qc.invalidateQueries({queryKey:['admin-popups']});qc.invalidateQueries({queryKey:['marketing-popup-active']});toast.success(vars.isActive?'Novedad activada en tienda':'Novedad desactivada')}});
+  const testPopup=async(popup:any)=>{try{if(!popup.isActive)await toggleActive.mutateAsync({id:popup.id,isActive:true});localStorage.removeItem(`mb_marketing_popup_seen_${popup.id}`);window.open(`/?mb_popup_test=${popup.id}`,'_blank','noopener,noreferrer');}catch(e:any){toast.error(e?.message||'No se pudo preparar la prueba del popup');}};
+  const previewStyle={backgroundColor:f.backgroundColor||'#120d0a',aspectRatio:`${Number(f.width||860)} / ${Number(f.height||560)}`} as any;
+  const edit=(popup:any)=>setF({...popup,titleAlign:popup.titleAlign||'center',subtitleAlign:popup.subtitleAlign||'center',bodyAlign:popup.bodyAlign||'center',buttonsAlign:popup.buttonsAlign||'center',startsAt:dateInputValue(popup.startsAt),endsAt:dateInputValue(popup.endsAt),primaryUrl:popup.primaryUrl||'',secondaryUrl:popup.secondaryUrl||'',secondaryLabel:popup.secondaryLabel||'',imageUrl:popup.imageUrl||''});
+  const uploadImage=async(file?:File)=>{if(!file)return;const imageUrl=await readFile(file);const size=await getImageSize(imageUrl).catch(()=>null);setF((prev:any)=>({...prev,imageUrl,imageNaturalWidth:size?.width||prev.imageNaturalWidth,imageNaturalHeight:size?.height||prev.imageNaturalHeight,...(prev.useImageDimensions&&size?{width:size.width,height:size.height}:{})}));};
+  const movePiece=(piece:PopupPiece,event:{clientX:number;clientY:number})=>{
+    const rect=previewRef.current?.getBoundingClientRect();
+    if(!rect)return;
+    const keys=popupPieceKeys[piece];
+    const x=Math.round(Math.max(0,Math.min(100,((event.clientX-rect.left)/rect.width)*100)));
+    const y=Math.round(Math.max(0,Math.min(100,((event.clientY-rect.top)/rect.height)*100)));
+    setF((prev:any)=>({...prev,[keys.x]:x,[keys.y]:y}));
+  };
+  const startDrag=(piece:PopupPiece,e:any)=>{e.preventDefault();e.stopPropagation();setSelectedPiece(piece);setDragging(piece);e.currentTarget.setPointerCapture?.(e.pointerId);};
+  const alignPiece=(piece:PopupPiece,align:PopupAlign)=>{
+    const keys=popupPieceKeys[piece];
+    const x=popupAlignedX(piece,align);
+    setSelectedPiece(piece);
+    setF((prev:any)=>({...prev,[keys.x]:x,[keys.align]:align}));
+  };
+  const AlignButtons=({piece}:{piece:PopupPiece})=>{
+    if(piece==='buttons'&&!selectedPiece)return null;
+    const activePiece=(piece==='buttons'?selectedPiece:piece) as PopupPiece;
+    const keys=popupPieceKeys[activePiece];
+    const controls=<div className="flex flex-wrap gap-2">{(['left','center','right'] as PopupAlign[]).map(align=><button key={align} type="button" onClick={()=>alignPiece(activePiece,align)} className={`rounded-full border px-3 py-2 text-xs font-bold uppercase tracking-[.12em] ${f[keys.align]===align?'border-orange-300 bg-orange-500 text-black':'border-white/10 bg-white/5 text-white/70'}`}>{align==='left'?'Izquierda':align==='right'?'Derecha':'Centro'}</button>)}</div>;
+    if(piece!=='buttons')return controls;
+    return <div className="rounded-[1.35rem] border border-orange-300/20 bg-orange-500/10 p-4"><div className="mb-3 flex flex-wrap items-center justify-between gap-3"><div><p className="text-xs font-black uppercase tracking-[.16em] text-orange-100">Acciones rapidas</p><b className="capitalize">Editando {popupPieceLabels[activePiece]}</b></div><span className="rounded-full bg-black/30 px-3 py-1 text-xs text-white/65">X {f[keys.x]}% · Y {f[keys.y]}%</span></div>{controls}<p className="mt-3 text-xs text-white/45">Haz click en un elemento de la vista previa para cambiar estas opciones.</p></div>;
+  };
+  const Draggable=({piece,children,className,style}:{piece:PopupPiece;children:ReactNode;className?:string;style?:any})=><div onPointerDown={e=>startDrag(piece,e)} className={`absolute z-10 min-w-0 cursor-grab select-none break-words rounded-xl outline outline-1 transition hover:outline-orange-300/70 active:cursor-grabbing ${selectedPiece===piece?'bg-orange-500/5 outline-orange-300/90':'outline-transparent'} ${className||''}`} style={{width:popupPieceWidths[piece],...(style||{})}} title={`Arrastra ${popupPieceLabels[piece]}`}>{children}</div>;
+  return <div className="space-y-6"><Toolbar title="Novedades emergentes" subtitle="Diseña el popup, arrastra textos y botones en la vista previa, y define sus acciones."/><Panel title={f.id?'Editar novedad':'Crear novedad'} action={<span className={`rounded-full px-4 py-2 text-xs font-black uppercase tracking-[.14em] ${f.isActive?'bg-green-500/15 text-green-200':'bg-white/10 text-white/55'}`}>{f.isActive?'Activa':'Borrador'}</span>}><div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(440px,.9fr)]"><div className="space-y-5"><div className="grid gap-4 md:grid-cols-2"><Field label="Nombre interno"><input className="input-dark" value={f.name} onChange={e=>setF({...f,name:e.target.value})}/></Field><Field label="Estado"><AdminSelect value={String(f.isActive)} onChange={value=>setF({...f,isActive:value==='true'})} options={[{value:'false',label:'Borrador / oculto'},{value:'true',label:'Activo en la tienda'}]}/></Field><Field label="Retraso para aparecer"><input type="number" min={0} max={120} className="input-dark" value={f.delaySeconds} onChange={e=>setF({...f,delaySeconds:Number(e.target.value)})}/></Field><Field label="Mostrar"><AdminSelect value={String(f.showOnce)} onChange={value=>setF({...f,showOnce:value==='true'})} options={[{value:'true',label:'Una vez por navegador'},{value:'false',label:'Cada visita'}]}/></Field><Field label="Inicio opcional"><input type="datetime-local" className="input-dark" value={f.startsAt||''} onChange={e=>setF({...f,startsAt:e.target.value})}/></Field><Field label="Fin opcional"><input type="datetime-local" className="input-dark" value={f.endsAt||''} onChange={e=>setF({...f,endsAt:e.target.value})}/></Field></div><div className="grid gap-4 md:grid-cols-3"><Field label="Subir imagen / fondo"><input type="file" accept="image/*" className="input-dark" onChange={e=>uploadImage(e.target.files?.[0])}/></Field><Field label="Dimensiones"><AdminSelect value={f.useImageDimensions?'image':'custom'} onChange={value=>{const useImage=value==='image';setF({...f,useImageDimensions:useImage,...(useImage&&f.imageNaturalWidth&&f.imageNaturalHeight?{width:f.imageNaturalWidth,height:f.imageNaturalHeight}:{})})}} options={[{value:'custom',label:'Personalizadas'},{value:'image',label:'Usar las de la imagen'}]}/></Field><Field label="URL de imagen"><input className="input-dark" value={f.imageUrl||''} onChange={e=>setF({...f,imageUrl:e.target.value})}/></Field><Field label="Ancho px"><input type="number" className="input-dark" value={f.width} onChange={e=>setF({...f,width:Number(e.target.value)})}/></Field><Field label="Alto px"><input type="number" className="input-dark" value={f.height} onChange={e=>setF({...f,height:Number(e.target.value)})}/></Field><Field label="Overlay" hint="Ej: rgba(0,0,0,0.38)"><input className="input-dark" value={f.overlayColor} onChange={e=>setF({...f,overlayColor:e.target.value})}/></Field></div><div className="grid gap-4 md:grid-cols-3"><Field label="Titulo"><input className="input-dark" value={f.title} onChange={e=>setF({...f,title:e.target.value})}/></Field><Field label="Subtitulo"><input className="input-dark" value={f.subtitle||''} onChange={e=>setF({...f,subtitle:e.target.value})}/></Field><Field label="Texto extra"><input className="input-dark" value={f.body||''} onChange={e=>setF({...f,body:e.target.value})}/></Field></div><div className="grid gap-4 md:grid-cols-4"><Field label="Color fondo"><input type="color" className="input-dark h-12 p-1" value={f.backgroundColor} onChange={e=>setF({...f,backgroundColor:e.target.value})}/></Field><Field label="Color titulo"><input type="color" className="input-dark h-12 p-1" value={f.titleColor} onChange={e=>setF({...f,titleColor:e.target.value})}/></Field><Field label="Color subtitulo"><input type="color" className="input-dark h-12 p-1" value={f.subtitleColor} onChange={e=>setF({...f,subtitleColor:e.target.value})}/></Field><Field label="Color texto extra"><input type="color" className="input-dark h-12 p-1" value={f.bodyColor} onChange={e=>setF({...f,bodyColor:e.target.value})}/></Field></div><div className="grid gap-4 md:grid-cols-4"><Field label="Titulo X"><input type="range" min={0} max={100} value={f.titleX} onChange={e=>setF({...f,titleX:Number(e.target.value)})}/></Field><Field label="Titulo Y"><input type="range" min={0} max={100} value={f.titleY} onChange={e=>setF({...f,titleY:Number(e.target.value)})}/></Field><Field label="Subtitulo X"><input type="range" min={0} max={100} value={f.subtitleX} onChange={e=>setF({...f,subtitleX:Number(e.target.value)})}/></Field><Field label="Subtitulo Y"><input type="range" min={0} max={100} value={f.subtitleY} onChange={e=>setF({...f,subtitleY:Number(e.target.value)})}/></Field><Field label="Texto X"><input type="range" min={0} max={100} value={f.bodyX} onChange={e=>setF({...f,bodyX:Number(e.target.value)})}/></Field><Field label="Texto Y"><input type="range" min={0} max={100} value={f.bodyY} onChange={e=>setF({...f,bodyY:Number(e.target.value)})}/></Field><Field label="Botones X"><input type="range" min={0} max={100} value={f.buttonsX} onChange={e=>setF({...f,buttonsX:Number(e.target.value)})}/></Field><Field label="Botones Y"><input type="range" min={0} max={100} value={f.buttonsY} onChange={e=>setF({...f,buttonsY:Number(e.target.value)})}/></Field></div>{selectedPiece&&<AlignButtons piece="buttons"/>}<div className="grid gap-4 md:grid-cols-2"><PopupFold title="Boton principal" open={folds.primary} onToggle={()=>setFolds(v=>({...v,primary:!v.primary}))}><div className="grid gap-4 md:grid-cols-2"><Field label="Texto"><input className="input-dark" value={f.primaryLabel} onChange={e=>setF({...f,primaryLabel:e.target.value})}/></Field><Field label="Accion"><AdminSelect value={f.primaryAction} onChange={value=>setF({...f,primaryAction:value})} options={popupActionOptions}/></Field><Field label="Enlace / WhatsApp"><input className="input-dark" value={f.primaryUrl||''} onChange={e=>setF({...f,primaryUrl:e.target.value})}/></Field><Field label="Color boton"><input type="color" className="input-dark h-12 p-1" value={f.primaryBgColor} onChange={e=>setF({...f,primaryBgColor:e.target.value})}/></Field><Field label="Color texto"><input type="color" className="input-dark h-12 p-1" value={f.primaryTextColor} onChange={e=>setF({...f,primaryTextColor:e.target.value})}/></Field></div></PopupFold><PopupFold title="Boton secundario" open={folds.secondary} onToggle={()=>setFolds(v=>({...v,secondary:!v.secondary}))}><div className="grid gap-4 md:grid-cols-2"><Field label="Texto"><input className="input-dark" value={f.secondaryLabel||''} onChange={e=>setF({...f,secondaryLabel:e.target.value})}/></Field><Field label="Accion"><AdminSelect value={f.secondaryAction} onChange={value=>setF({...f,secondaryAction:value})} options={popupActionOptions}/></Field><Field label="Enlace opcional"><input className="input-dark" value={f.secondaryUrl||''} onChange={e=>setF({...f,secondaryUrl:e.target.value})}/></Field><Field label="Fondo boton"><input className="input-dark" value={f.secondaryBgColor} onChange={e=>setF({...f,secondaryBgColor:e.target.value})}/></Field><Field label="Color texto"><input type="color" className="input-dark h-12 p-1" value={f.secondaryTextColor} onChange={e=>setF({...f,secondaryTextColor:e.target.value})}/></Field></div></PopupFold></div><div className="flex flex-wrap gap-3"><button className="btn-ember justify-center" onClick={()=>save.mutate(f)}>{f.id?'Guardar cambios':'Crear novedad'}</button>{f.id&&<button className="btn-ghost justify-center" onClick={()=>setF(popupBlankV2)}>Cancelar edicion</button>}</div></div><div className="rounded-[1.6rem] border border-white/10 bg-black/30 p-4"><div className="mb-3 flex items-center justify-between gap-3"><b>Vista previa arrastrable</b><span className="admin-muted text-xs">{f.width} x {f.height}px</span></div><div ref={previewRef} onPointerMove={e=>dragging&&movePiece(dragging,e)} onPointerUp={()=>setDragging(null)} onPointerCancel={()=>setDragging(null)} className="relative mx-auto w-full touch-none overflow-hidden rounded-[1.35rem] border border-orange-200/20 shadow-2xl" style={previewStyle}>{f.imageUrl&&<img src={f.imageUrl} className="absolute inset-0 h-full w-full object-cover" alt="Preview popup"/>}<div className="absolute inset-0" style={{background:f.overlayColor}}/><Draggable piece="title" className="max-w-[86%]" style={{...popupPercent(f.titleX,f.titleY),...popupAlignCss(f.titleAlign),color:f.titleColor}}><h3 className="text-[clamp(1.8rem,5vw,3.6rem)] font-black uppercase leading-[.95]">{f.title}</h3></Draggable>{f.subtitle&&<Draggable piece="subtitle" className="max-w-[80%]" style={{...popupPercent(f.subtitleX,f.subtitleY),...popupAlignCss(f.subtitleAlign),color:f.subtitleColor}}><p className="text-xl font-extrabold">{f.subtitle}</p></Draggable>}{f.body&&<Draggable piece="body" className="max-w-[78%]" style={{...popupPercent(f.bodyX,f.bodyY),...popupAlignCss(f.bodyAlign),color:f.bodyColor}}><p className="whitespace-pre-line text-base font-bold">{f.body}</p></Draggable>}<Draggable piece="buttons" className="flex max-w-[86%] flex-wrap gap-3" style={{...popupPercent(f.buttonsX,f.buttonsY),...popupAlignCss(f.buttonsAlign)}}><span className="rounded-xl px-5 py-3 text-xs font-black uppercase tracking-[.16em]" style={{background:f.primaryBgColor,color:f.primaryTextColor}}>{f.primaryLabel}</span>{f.secondaryLabel&&<span className="rounded-xl border border-white/20 px-4 py-2 text-xs font-bold" style={{background:f.secondaryBgColor,color:f.secondaryTextColor}}>{f.secondaryLabel}</span>}</Draggable></div><p className="admin-muted mt-4 text-sm">Tip: arrastra titulo, subtitulo, texto o botones directamente sobre la imagen. Los botones de alineacion ajustan izquierda, centro y derecha rapido.</p></div></div></Panel><Panel title="Novedades guardadas">{data.map((popup:any)=><div key={popup.id} className="mb-3 grid gap-3 rounded-2xl bg-black/30 p-4 lg:grid-cols-[90px_1fr_auto]"><div className="h-20 overflow-hidden rounded-2xl bg-white/5">{popup.imageUrl?<img src={popup.imageUrl} className="h-full w-full object-cover"/>:<div className="grid h-full place-items-center text-xs text-white/35">Sin imagen</div>}</div><div><b>{popup.name}</b><p className="text-sm text-white/45">{popup.title} · aparece en {popup.delaySeconds}s · {popup.showOnce?'una vez por navegador':'cada visita'}</p><p className={popup.isActive?'text-sm text-green-200':'text-sm text-white/35'}>{popup.isActive?'Activo en tienda':'Oculto'}</p></div><div className="flex flex-wrap items-center gap-2"><button className="btn-ghost" onClick={()=>edit(popup)}>Editar</button><button className="btn-ghost" onClick={()=>toggleActive.mutate({id:popup.id,isActive:!popup.isActive})}>{popup.isActive?'Desactivar':'Activar'}</button><button className="btn-ghost" onClick={()=>testPopup(popup)}>Probar en tienda</button><button className="rounded-full bg-red-500/10 px-4 py-2 text-sm text-red-200" onClick={()=>{if(confirm('Eliminar esta novedad emergente?'))del.mutate(popup.id)}}>Eliminar</button></div></div>)}{!data.length&&<Empty text="Todavia no has creado novedades emergentes."/>}</Panel></div>;
+}
+
+function DropsTabV2(){
+  const qc=useQueryClient();
+  const formRef=useRef<HTMLDivElement|null>(null);
+  const {data=[]}=useQuery({queryKey:['admin-drops'],queryFn:()=>api<any[]>('/admin/drops')});
+  const blank={id:'',title:'',description:'',startsAt:'',endsAt:'',isActive:false,lockedMode:false};
+  const [f,setF]=useState<any>(blank);
+  const reset=()=>setF(blank);
+  const validate=()=>{
+    const title=String(f.title||'').trim();
+    const description=String(f.description||'').trim();
+    if(title.length<2)return 'Escribe un titulo para el drop.';
+    if(description.length<5)return 'Agrega una descripcion un poquito mas clara.';
+    if(!f.startsAt)return 'Selecciona la fecha y hora de inicio.';
+    if(!f.endsAt)return 'Selecciona la fecha y hora de cierre.';
+    if(Number.isNaN(Date.parse(f.startsAt))||Number.isNaN(Date.parse(f.endsAt)))return 'Las fechas del drop no son validas.';
+    if(new Date(f.endsAt)<=new Date(f.startsAt))return 'El cierre del drop debe ser despues del inicio.';
+    return '';
+  };
+  const payload=()=>({...f,id:undefined,title:String(f.title||'').trim(),description:String(f.description||'').trim(),startsAt:f.startsAt,endsAt:f.endsAt,isActive:Boolean(f.isActive),lockedMode:Boolean(f.lockedMode)});
+  const save=useMutation({
+    mutationFn:(p:any)=>api(p.id?`/admin/drops/${p.id}`:'/admin/drops',{method:p.id?'PATCH':'POST',body:JSON.stringify(payload())}),
+    onSuccess:()=>{
+      qc.invalidateQueries({queryKey:['admin-drops']});
+      qc.invalidateQueries({queryKey:['admin-dashboard']});
+      qc.invalidateQueries({queryKey:['active-drop']});
+      toast.success(f.id?'Drop actualizado':'Drop creado');
+      reset();
+    },
+    onError:(e:any)=>toast.error(e.message||'No se pudo guardar el drop'),
+  });
+  const del=useMutation({
+    mutationFn:(id:string)=>api('/admin/drops/'+id,{method:'DELETE'}),
+    onSuccess:()=>{
+      qc.invalidateQueries({queryKey:['admin-drops']});
+      qc.invalidateQueries({queryKey:['admin-models']});
+      qc.invalidateQueries({queryKey:['admin-dashboard']});
+      toast.success('Drop eliminado');
+      reset();
+    },
+    onError:(e:any)=>toast.error(e.message||'No se pudo eliminar el drop'),
+  });
+  const submit=()=>{
+    const error=validate();
+    if(error){toast.error(error);return;}
+    save.mutate(f);
+  };
+  const edit=(drop:any)=>{
+    setF({...drop,startsAt:dateInputValue(drop.startsAt),endsAt:dateInputValue(drop.endsAt)});
+    requestAnimationFrame(()=>formRef.current?.scrollIntoView({behavior:'smooth',block:'start'}));
+  };
+  return <div className="space-y-6">
+    <Toolbar title="Drops" subtitle="Crea lanzamientos, prepara colecciones y decide si un drop toma control de la tienda."/>
+    <Panel title="Como funciona" action={<span className="rounded-full bg-orange-500/10 px-4 py-2 text-xs font-black uppercase tracking-[.14em] text-orange-100">Modelos pueden usar drops guardados</span>}>
+      <div className="grid gap-3 md:grid-cols-3">
+        <div className="rounded-2xl border border-white/10 bg-black/25 p-4"><b>Drop inactivo</b><p className="mt-1 text-sm text-white/50">Sirve para organizar fotos de modelos sin cambiar la tienda publica.</p></div>
+        <div className="rounded-2xl border border-orange-300/20 bg-orange-500/10 p-4"><b>Drop activo</b><p className="mt-1 text-sm text-orange-50/70">Se usa para contador y experiencia de lanzamiento.</p></div>
+        <div className="rounded-2xl border border-white/10 bg-black/25 p-4"><b>Bloquear tienda</b><p className="mt-1 text-sm text-white/50">Solo usalo cuando quieres que el publico vea exclusivamente el drop.</p></div>
+      </div>
+    </Panel>
+    <div ref={formRef}>
+      <Panel title={f.id?'Editar drop':'Crear drop'} action={f.id?<button className="btn-ghost" onClick={reset}>Cancelar edicion</button>:null}>
+        <div className="grid gap-4 md:grid-cols-2">
+          <Field label="Titulo del drop"><input className="input-dark" value={f.title} onChange={e=>setF({...f,title:e.target.value})} placeholder="Drop de verano, nuevas llegadas..."/></Field>
+          <Field label="Descripcion corta"><input className="input-dark" value={f.description} onChange={e=>setF({...f,description:e.target.value})} placeholder="Texto interno para identificar la coleccion"/></Field>
+          <Field label="Inicio"><input className="input-dark" type="datetime-local" value={f.startsAt||''} onChange={e=>setF({...f,startsAt:e.target.value})}/></Field>
+          <Field label="Fin"><input className="input-dark" type="datetime-local" value={f.endsAt||''} onChange={e=>setF({...f,endsAt:e.target.value})}/></Field>
+          <label className={`rounded-2xl border p-4 text-sm transition ${f.isActive?'border-orange-400 bg-orange-500/10 text-orange-50':'border-white/10 bg-black/20 text-white/65'}`}><input type="checkbox" className="mr-2" checked={f.isActive} onChange={e=>setF({...f,isActive:e.target.checked})}/> Activar drop</label>
+          <label className={`rounded-2xl border p-4 text-sm transition ${f.lockedMode?'border-red-300 bg-red-500/10 text-red-50':'border-white/10 bg-black/20 text-white/65'}`}><input type="checkbox" className="mr-2" checked={f.lockedMode} onChange={e=>setF({...f,lockedMode:e.target.checked})}/> Bloquear tienda publica durante el drop</label>
+          <button disabled={save.isPending} className="btn-ember justify-center disabled:opacity-50 md:col-span-2" onClick={submit}>{save.isPending?'Guardando...':f.id?'Guardar cambios':'Crear drop'}</button>
+        </div>
+      </Panel>
+    </div>
+    <Panel title="Drops guardados">
+      <div className="grid gap-3">
+        {data.map((d:any)=><div key={d.id} className="grid gap-3 rounded-2xl border border-white/10 bg-black/30 p-4 md:grid-cols-[1fr_auto]">
+          <div><div className="flex flex-wrap items-center gap-2"><b>{d.title}</b><span className={`rounded-full px-3 py-1 text-xs font-bold ${d.isActive?'bg-green-500/15 text-green-200':'bg-white/10 text-white/50'}`}>{d.isActive?'Activo':'Inactivo'}</span>{d.lockedMode&&<span className="rounded-full bg-red-500/15 px-3 py-1 text-xs font-bold text-red-100">Bloquea tienda</span>}</div><p className="mt-1 text-sm text-white/45">{d.description}</p><p className="mt-1 text-xs text-white/35">{new Date(d.startsAt).toLocaleString('es-DO')} - {new Date(d.endsAt).toLocaleString('es-DO')} · modelos {d._count?.modelPhotos||0}</p></div>
+          <div className="flex flex-wrap items-center gap-2"><button className="btn-ghost" onClick={()=>edit(d)}>Editar</button><button className="rounded-full bg-red-500/10 px-4 py-2 text-sm font-bold text-red-100" onClick={()=>{if(confirm('Eliminar este drop? Sus fotos de modelos se conservaran como independientes.'))del.mutate(d.id)}}><Trash2 size={14} className="mr-2 inline"/>Eliminar</button></div>
+        </div>)}
+        {!data.length&&<Empty text="No hay drops creados. Crea uno para organizar fotos de modelos o preparar un lanzamiento."/>}
+      </div>
+    </Panel>
+  </div>;
+}
+
+function ModelsTabV2(){
+  const qc=useQueryClient();
+  const formRef=useRef<HTMLDivElement|null>(null);
+  const previewCanvasRef=useRef<HTMLCanvasElement|null>(null);
+  const {data:drops=[]}=useQuery({queryKey:['admin-drops'],queryFn:()=>api<any[]>('/admin/drops')});
+  const {data:products=[]}=useQuery({queryKey:['admin-products'],queryFn:()=>api<any[]>('/admin/products')});
+  const {data:models=[]}=useQuery({queryKey:['admin-models'],queryFn:()=>api<any[]>('/admin/models')});
+  const blank={id:'',dropId:'',productId:'',imageUrl:'',caption:'',tagX:50,tagY:45,tagDotSize:24,tagLabelSize:12,tagLabelOffsetX:0,tagLabelOffsetY:8,sortOrder:1,isActive:true};
+  const [f,setF]=useState<any>(blank);
+  const [cropSource,setCropSource]=useState('');
+  const [cropZoom,setCropZoom]=useState(1);
+  const [cropX,setCropX]=useState(50);
+  const [cropY,setCropY]=useState(50);
+  const [cropWidth,setCropWidth]=useState(1000);
+  const [cropHeight,setCropHeight]=useState(1250);
+  const [cropBusy,setCropBusy]=useState(false);
+  const [cropError,setCropError]=useState('');
+  const selectedProduct=products.find((p:any)=>p.id===(f.productId||products[0]?.id));
+  const cropSettings={zoom:cropZoom,positionX:cropX,positionY:cropY,width:cropWidth,height:cropHeight};
+  const resetCrop=(source='')=>{
+    setCropSource(source);
+    setCropZoom(1);
+    setCropX(50);
+    setCropY(50);
+    setCropWidth(1000);
+    setCropHeight(1250);
+    setCropError('');
+  };
+  const reset=()=>{
+    setF(blank);
+    resetCrop();
+  };
+  const openCropEditor=(source:string)=>{
+    const value=String(source||'').trim();
+    if(!value){toast.error('Sube una foto o pega una URL valida.');return;}
+    resetCrop(value);
+  };
+  useEffect(()=>{
+    const canvas=previewCanvasRef.current;
+    if(!canvas||!cropSource)return;
+    let cancelled=false;
+    setCropError('');
+    loadCropImage(cropSource).then(img=>{
+      if(cancelled)return;
+      drawModelCrop(canvas,img,{...cropSettings,width:800,height:1000});
+    }).catch((error:Error)=>{
+      if(cancelled)return;
+      setCropError(error.message||'No se pudo mostrar la imagen.');
+    });
+    return()=>{cancelled=true;};
+  },[cropSource,cropZoom,cropX,cropY]);
+  const setOutputWidth=(value:number)=>{
+    const width=Math.max(320,Math.min(1600,Math.round(value||1000)));
+    setCropWidth(width);
+    setCropHeight(Math.round(width*1.25));
+  };
+  const setOutputHeight=(value:number)=>{
+    const height=Math.max(400,Math.min(2000,Math.round(value||1250)));
+    setCropHeight(height);
+    setCropWidth(Math.round(height*0.8));
+  };
+  const validate=()=>{
+    if(!products.length)return 'Primero crea un producto para etiquetarlo en la foto.';
+    if(!(f.productId||products[0]?.id))return 'Selecciona la gafa que aparece en la foto.';
+    if(!String(f.imageUrl||'').trim())return 'Sube una foto o pega una URL de imagen.';
+    return '';
+  };
+  const buildPayload=(p:any)=>({
+    ...p,
+    id:undefined,
+    dropId:p.dropId||null,
+    productId:p.productId||products[0]?.id,
+    imageUrl:String(p.imageUrl||'').trim(),
+    caption:String(p.caption||'').trim()||null,
+    tagX:Math.max(0,Math.min(100,Math.round(Number(p.tagX??50)))),
+    tagY:Math.max(0,Math.min(100,Math.round(Number(p.tagY??45)))),
+    tagDotSize:Math.max(12,Math.min(72,Math.round(Number(p.tagDotSize??24)))),
+    tagLabelSize:Math.max(9,Math.min(28,Math.round(Number(p.tagLabelSize??12)))),
+    tagLabelOffsetX:Math.max(-240,Math.min(240,Math.round(Number(p.tagLabelOffsetX??0)))),
+    tagLabelOffsetY:Math.max(-180,Math.min(180,Math.round(Number(p.tagLabelOffsetY??8)))),
+    sortOrder:Math.round(Number(p.sortOrder||0)),
+    isActive:Boolean(p.isActive),
+  });
+  const save=useMutation({
+    mutationFn:(p:any)=>api(p.id?`/admin/models/${p.id}`:'/admin/models',{method:p.id?'PATCH':'POST',body:JSON.stringify(buildPayload(p))}),
+    onSuccess:()=>{
+      qc.invalidateQueries({queryKey:['admin-models']});
+      qc.invalidateQueries({queryKey:['public-model-photos']});
+      toast.success(f.id?'Foto de modelo actualizada':'Foto de modelo guardada');
+      reset();
+    },
+    onError:(e:any)=>toast.error(e.message||'No se pudo guardar la foto de modelo'),
+  });
+  const del=useMutation({
+    mutationFn:(id:string)=>api('/admin/models/'+id,{method:'DELETE'}),
+    onSuccess:()=>{
+      qc.invalidateQueries({queryKey:['admin-models']});
+      qc.invalidateQueries({queryKey:['public-model-photos']});
+      toast.success('Foto de modelo eliminada');
+      reset();
+    },
+    onError:(e:any)=>toast.error(e.message||'No se pudo eliminar la foto de modelo'),
+  });
+  const cropCurrentImage=async()=>{
+    const source=cropSource||String(f.imageUrl||'').trim();
+    if(!source)throw new Error('Sube una foto antes de recortarla.');
+    return exportModelCrop(source,cropSettings);
+  };
+  const applyCrop=async()=>{
+    setCropBusy(true);
+    try{
+      const cropped=await cropCurrentImage();
+      setF((prev:any)=>({...prev,imageUrl:cropped}));
+      setCropSource(cropped);
+      setCropZoom(1);
+      setCropX(50);
+      setCropY(50);
+      setCropError('');
+      toast.success('Recorte aplicado. Esta sera la imagen visible en la tienda.');
+    }catch(error:any){
+      toast.error(error.message||'No se pudo aplicar el recorte.');
+    }finally{
+      setCropBusy(false);
+    }
+  };
+  const submit=async()=>{
+    const error=validate();
+    if(error){toast.error(error);return;}
+    setCropBusy(true);
+    try{
+      const imageUrl=await cropCurrentImage();
+      save.mutate({...f,imageUrl});
+    }catch(cropFailure:any){
+      toast.error(cropFailure.message||'No se pudo preparar la imagen.');
+    }finally{
+      setCropBusy(false);
+    }
+  };
+  const place=(e:any)=>{
+    const rect=e.currentTarget.getBoundingClientRect();
+    setF((prev:any)=>({...prev,tagX:Math.round(((e.clientX-rect.left)/rect.width)*100),tagY:Math.round(((e.clientY-rect.top)/rect.height)*100)}));
+  };
+  const edit=(model:any)=>{
+    setF({...model,dropId:model.dropId||model.drop?.id||'',productId:model.productId||model.product?.id||''});
+    resetCrop(model.imageUrl||'');
+    requestAnimationFrame(()=>formRef.current?.scrollIntoView({behavior:'smooth',block:'start'}));
+  };
+  return <div className="space-y-6">
+    <Toolbar title="Modelos / Lookbook" subtitle="Recorta la foto en el formato exacto de la tienda, coloca la etiqueta y ordena como se muestra en la pagina Modelos."/>
+    {!products.length&&<div className="rounded-2xl border border-yellow-400/20 bg-yellow-500/10 p-4 text-sm text-yellow-50">Crea al menos un producto para poder etiquetar la foto.</div>}
+    <div ref={formRef}>
+      <Panel title={f.id?'Editar foto de modelo':'Crear foto de modelo'} action={f.id?<button className="btn-ghost" onClick={reset}>Cancelar edicion</button>:null}>
+        <div className="grid gap-4 md:grid-cols-2">
+          <Field label="Coleccion / drop opcional" hint="Puedes dejar la foto independiente."><AdminSelect value={f.dropId||''} onChange={value=>setF({...f,dropId:value})} options={[{value:'',label:'Sin coleccion / independiente'},...drops.map((d:any)=>({value:d.id,label:<>{d.title} {d.isActive?'· activo':'· guardado'}</>}))]}/></Field>
+          <Field label="Gafa etiquetada"><AdminSelect value={f.productId||products[0]?.id||''} onChange={value=>setF({...f,productId:value})} options={products.map((p:any)=>({value:p.id,label:p.name}))}/></Field>
+          <Field label="Subir foto" hint="Al elegirla se abre debajo el editor de recorte."><input className="input-dark" type="file" accept="image/*" onChange={async e=>{const file=e.target.files?.[0];if(!file)return;const imageUrl=await readFile(file);setF((prev:any)=>({...prev,imageUrl}));resetCrop(imageUrl);}}/></Field>
+          <Field label="URL de imagen" hint="Si usas una URL, presiona Abrir en editor antes de guardar."><div className="flex gap-2"><input className="input-dark min-w-0 flex-1" value={f.imageUrl||''} onChange={e=>setF({...f,imageUrl:e.target.value})} placeholder="Tambien puedes pegar una URL"/><button type="button" className="btn-ghost shrink-0" onClick={()=>openCropEditor(f.imageUrl)}>Abrir</button></div></Field>
+          <Field label="Texto/caption"><input className="input-dark" value={f.caption||''} onChange={e=>setF({...f,caption:e.target.value})} placeholder="Ej: lentes usados por modelo"/></Field>
+          <Field label="Orden"><input type="number" className="input-dark" value={f.sortOrder} onChange={e=>setF({...f,sortOrder:Number(e.target.value)})}/></Field>
+          <Field label="Posicion X (%)"><input type="number" min={0} max={100} className="input-dark" value={f.tagX} onChange={e=>setF({...f,tagX:Number(e.target.value)})}/></Field>
+          <Field label="Posicion Y (%)"><input type="number" min={0} max={100} className="input-dark" value={f.tagY} onChange={e=>setF({...f,tagY:Number(e.target.value)})}/></Field>
+          <Field label={`Tamano del punto ${f.tagDotSize||24}px`}><input className="w-full accent-orange-500" type="range" min={12} max={72} step={1} value={f.tagDotSize||24} onChange={e=>setF({...f,tagDotSize:Number(e.target.value)})}/></Field>
+          <Field label={`Tamano del nombre ${f.tagLabelSize||12}px`}><input className="w-full accent-orange-500" type="range" min={9} max={28} step={1} value={f.tagLabelSize||12} onChange={e=>setF({...f,tagLabelSize:Number(e.target.value)})}/></Field>
+          <Field label={`Nombre izquierda/derecha ${f.tagLabelOffsetX||0}px`}><input className="w-full accent-orange-500" type="range" min={-240} max={240} step={1} value={f.tagLabelOffsetX||0} onChange={e=>setF({...f,tagLabelOffsetX:Number(e.target.value)})}/></Field>
+          <Field label={`Nombre arriba/abajo ${f.tagLabelOffsetY??8}px`}><input className="w-full accent-orange-500" type="range" min={-180} max={180} step={1} value={f.tagLabelOffsetY??8} onChange={e=>setF({...f,tagLabelOffsetY:Number(e.target.value)})}/></Field>
+          <label className={`rounded-2xl border p-4 text-sm transition ${f.isActive?'border-green-400/30 bg-green-500/10 text-green-50':'border-white/10 bg-black/20 text-white/60'}`}><input type="checkbox" className="mr-2" checked={Boolean(f.isActive)} onChange={e=>setF({...f,isActive:e.target.checked})}/> Visible en la pagina Modelos</label>
+          <button disabled={save.isPending||cropBusy||!products.length} className="btn-ember justify-center disabled:opacity-50" onClick={submit}>{save.isPending||cropBusy?'Preparando imagen...':f.id?'Guardar cambios':'Guardar foto'}</button>
+        </div>
+        {cropSource&&<div className="mt-5">
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+            <div><b>Vista exacta en la tienda</b><p className="admin-muted text-sm">El recorte y la posicion coinciden con la tarjeta publica.</p></div>
+            <span className="rounded-full border border-white/10 bg-black/25 px-3 py-1 text-xs text-white/55">X {f.tagX}% · Y {f.tagY}%</span>
+          </div>
+          <div onClick={place} className="relative aspect-[4/5] w-full max-w-[400px] cursor-crosshair overflow-hidden rounded-[2.2rem] border border-white/10 bg-black">
+            <canvas ref={previewCanvasRef} width={800} height={1000} className="block h-full w-full"/>
+            <ModelProductTag
+              x={f.tagX}
+              y={f.tagY}
+              dotSize={f.tagDotSize}
+              labelSize={f.tagLabelSize}
+              labelOffsetX={f.tagLabelOffsetX}
+              labelOffsetY={f.tagLabelOffsetY}
+              label={selectedProduct?.name||'Etiqueta'}
+            />
+          </div>
+          {cropError&&<p className="mt-3 rounded-xl border border-red-400/20 bg-red-500/10 p-3 text-sm text-red-100">{cropError}</p>}
+          <div className="mt-5 rounded-[1.6rem] border border-white/10 bg-black/25 p-5">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div><p className="text-xs font-black uppercase tracking-[.16em] text-orange-300">Editor de encuadre</p><h3 className="mt-1 text-xl font-black">Recorta antes de publicar</h3></div>
+              <button type="button" className="btn-ghost" onClick={()=>{setCropZoom(1);setCropX(50);setCropY(50)}}><RotateCcw size={15}/> Centrar</button>
+            </div>
+            <div className="mt-5 grid gap-5 lg:grid-cols-3">
+              <Field label={`Acercamiento ${cropZoom.toFixed(2)}x`}><input className="w-full accent-orange-500" type="range" min={1} max={3} step={0.05} value={cropZoom} onChange={e=>setCropZoom(Number(e.target.value))}/></Field>
+              <Field label={`Mover horizontal ${cropX}%`}><input className="w-full accent-orange-500" type="range" min={0} max={100} step={1} value={cropX} onChange={e=>setCropX(Number(e.target.value))}/></Field>
+              <Field label={`Mover vertical ${cropY}%`}><input className="w-full accent-orange-500" type="range" min={0} max={100} step={1} value={cropY} onChange={e=>setCropY(Number(e.target.value))}/></Field>
+            </div>
+            <div className="mt-5 grid items-end gap-4 md:grid-cols-[160px_160px_1fr]">
+              <Field label="Ancho final px"><input type="number" min={320} max={1600} className="input-dark" value={cropWidth} onChange={e=>setOutputWidth(Number(e.target.value))}/></Field>
+              <Field label="Alto final px"><input type="number" min={400} max={2000} className="input-dark" value={cropHeight} onChange={e=>setOutputHeight(Number(e.target.value))}/></Field>
+              <div className="flex flex-wrap gap-2">{[600,800,1000,1200].map(width=><button key={width} type="button" className={`rounded-full border px-3 py-2 text-xs font-bold transition ${cropWidth===width?'border-orange-400 bg-orange-500/15 text-orange-100':'border-white/10 bg-white/5 text-white/60 hover:border-white/25'}`} onClick={()=>setOutputWidth(width)}>{width} x {width*1.25}</button>)}</div>
+            </div>
+            <p className="admin-muted mt-3 text-xs">La proporcion 4:5 se mantiene para que la tienda no vuelva a cortar la imagen.</p>
+            <button type="button" disabled={cropBusy} className="btn-ember mt-5 justify-center disabled:opacity-50" onClick={applyCrop}>{cropBusy?'Aplicando...':'Aplicar recorte'}</button>
+            <p className="admin-muted mt-2 text-xs">Tambien puedes guardar directamente: el sistema aplicara el recorte visible de forma automatica.</p>
+          </div>
+        </div>}
+        <p className="admin-muted mt-3 text-sm">Haz click sobre la foto para mover la etiqueta. Usa los controles para encuadrar la imagen; lo guardado sera exactamente lo que vera el cliente.</p>
+      </Panel>
+    </div>
+    <Panel title="Fotos guardadas">
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+        {models.map((m:any)=><div key={m.id} className="rounded-3xl border border-white/10 bg-black/30 p-4">
+          <div className="relative aspect-[4/5] overflow-hidden rounded-[2.2rem] bg-black">
+            <img src={m.imageUrl} className="h-full w-full object-cover"/>
+            <ModelProductTag
+              x={m.tagX}
+              y={m.tagY}
+              dotSize={m.tagDotSize}
+              labelSize={m.tagLabelSize}
+              labelOffsetX={m.tagLabelOffsetX}
+              labelOffsetY={m.tagLabelOffsetY}
+              label={m.product?.name||'Etiqueta'}
+              animated={false}
+            />
+          </div>
+          <div className="mt-3 flex items-start justify-between gap-3"><div><b>{m.product?.name||'Producto eliminado'}</b><p className="text-sm text-white/45">{m.drop?.title||'Foto independiente'} · orden {m.sortOrder} · {m.isActive?'visible':'oculta'}</p>{m.caption&&<p className="mt-1 text-sm text-white/55">{m.caption}</p>}</div><span className={`rounded-full px-3 py-1 text-xs font-bold ${m.isActive?'bg-green-500/15 text-green-200':'bg-white/10 text-white/45'}`}>{m.isActive?'ON':'OFF'}</span></div>
+          <div className="mt-4 flex flex-wrap gap-2"><button className="btn-ghost" onClick={()=>edit(m)}>Editar</button><button className="rounded-full bg-red-500/10 px-4 py-2 text-sm font-bold text-red-100" onClick={()=>{if(confirm('Eliminar esta foto de modelo?'))del.mutate(m.id)}}><Trash2 size={14} className="mr-2 inline"/>Eliminar</button></div>
+        </div>)}
+      </div>
+      {!models.length&&<Empty text="Aun no has agregado fotos de modelos."/>}
+    </Panel>
+  </div>;
+}
+
+export default function Admin(){
+  const [tab,setTab]=useState<Tab>('overview');
+  const {user,logout}=useAuth();
+  const visibleTabs=useMemo(()=>tabs.filter(t=>user?.role==='ADMIN'||user?.permissions?.includes(t.permission)),[user]);
+  const canDashboard=Boolean(user&&(user.role==='ADMIN'||user.permissions?.includes('dashboard')));
+  const {data,isLoading,error}=useQuery({queryKey:['admin-dashboard'],queryFn:()=>api<any>('/admin/dashboard'),retry:false,enabled:canDashboard});
+  const dashboardError=error?adminDashboardError(error):null;
+
+  useEffect(()=>{
+    if(user&&visibleTabs.length&&!visibleTabs.some(t=>t.key===tab))setTab(visibleTabs[0].key);
+  },[user,visibleTabs,tab]);
+  useEffect(()=>{
+    if(Number((error as any)?.status)===401){
+      toast.error('Tu sesión venció. Inicia sesión nuevamente.');
+      logout();
+    }
+  },[error,logout]);
+
+  if(!user)return <div className="grid min-h-screen place-items-center bg-black text-white"><div className="rounded-3xl border border-white/10 p-8 text-center"><h1 className="text-2xl font-bold">Inicia sesión</h1><a href="/login?next=/dixnissowner" className="btn-ember mt-5 inline-flex">Continuar</a></div></div>;
+  if(user.role==='CUSTOMER'||!visibleTabs.length)return <div className="grid min-h-screen place-items-center bg-black text-white">No tienes acceso a esta sección.</div>;
+
+  return <Shell tab={tab} setTab={setTab}>
+    {canDashboard&&isLoading&&<p className="text-white/45">Cargando panel...</p>}
+    {canDashboard&&dashboardError&&<div className="rounded-2xl border border-red-400/30 bg-red-500/10 p-5"><h2 className="text-lg font-bold text-red-100">{dashboardError.title}</h2><p className="mt-2 text-sm text-red-50/80">{dashboardError.body}</p>{dashboardError.detail&&<p className="mt-3 rounded-xl bg-black/25 px-3 py-2 text-xs text-red-100/70">Detalle: {dashboardError.detail}</p>}</div>}
+    {tab==='overview'&&canDashboard&&data&&<OverviewEnhanced data={data} setTab={setTab}/>}
+    {tab==='products'&&<ProductsTabV2/>}
+    {tab==='categories'&&<CategoriesTabV2/>}
+    {tab==='orders'&&<OrdersTabFull/>}
+    {tab==='drops'&&<DropsTabV2/>}
+    {tab==='models'&&<ModelsTabV2/>}
+    {tab==='content'&&<ContentTab/>}
+    {tab==='popups'&&<MarketingPopupsTabV2/>}
+    {tab==='shipping'&&<ShippingTabV2/>}
+    {tab==='users'&&<UsersTabV2/>}
+    {tab==='finance'&&<FinanceTab/>}
+    {tab==='reports'&&<SalesDashboardTabV2/>}
+    {tab==='sales'&&<SalesTab/>}
+    {tab==='notifications'&&<NotificationsTab/>}
+    {tab==='coupons'&&<CouponsTab/>}
+    {tab==='inventory'&&<InventoryTab/>}
+    {tab==='settings'&&(data?<SettingsTab data={data}/>:<Empty text="Necesitas permiso de dashboard para cargar el control del sitio."/> )}
+    {tab==='support'&&<SupportTab/>}
+    {tab==='roles'&&<RolesTab/>}
+    {tab==='security'&&<SecurityTabV2/>}
+  </Shell>
+}

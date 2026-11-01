@@ -3,7 +3,7 @@ import HomeClient from './HomeClient';
 
 export const metadata: Metadata = {
   title: "Magma Blaze",
-  description: "Magma Blaze combina protección visual, diseño deportivo y comodidad ligera para acompañarte en cada movimiento.",
+  description: "Descubre lentes, airpods y accesorios Magma Blaze: piezas para expresar tu estilo y llevarte una experiencia que quieras repetir.",
 };
 
 export default function HomePage() {

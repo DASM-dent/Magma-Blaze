@@ -8,12 +8,14 @@ import { config, mailConfigured } from './config.js';
 import { prisma } from './prisma.js';
 import authRoutes from './routes/auth.js';
 import productRoutes from './routes/products.js';
+import { activateExpiredNewProducts } from './productStatus.js';
 import orderRoutes from './routes/orders.js';
 import adminRoutes from './routes/admin.js';
 import dropRoutes from './routes/drops.js';
 import categoryRoutes from './routes/categories.js';
 import newsRoutes from './routes/news.js';
 import contentRoutes from './routes/content.js';
+import reviewsRoutes from './routes/reviews.js';
 import accountRoutes from './routes/account.js';
 import securityRoutes, { blockBannedIp } from './routes/security.js';
 
@@ -104,6 +106,7 @@ app.use('/drops', dropRoutes);
 app.use('/categories', categoryRoutes);
 app.use('/news', newsRoutes);
 app.use('/content', contentRoutes);
+app.use('/reviews', reviewsRoutes);
 
 app.use((err: any, _req: express.Request, res: express.Response, next: express.NextFunction) => {
   console.error('[API_ERROR]', err);
@@ -120,6 +123,20 @@ app.use((err: any, _req: express.Request, res: express.Response, next: express.N
   });
 });
 
+async function syncExpiredNewProductStatuses() {
+  try {
+    const { count } = await activateExpiredNewProducts();
+    if (count) console.info('[PRODUCT_STATUS_SYNC] ' + count + ' producto(s) cambiaron de NEW a ACTIVE.');
+  } catch (error) {
+    console.error('[PRODUCT_STATUS_SYNC_ERROR]', error);
+  }
+}
+
+void syncExpiredNewProductStatuses();
+const productStatusSyncInterval = setInterval(() => {
+  void syncExpiredNewProductStatuses();
+}, 60 * 1000);
+productStatusSyncInterval.unref();
 const server = app.listen(config.port, () => console.log(`API lista en http://localhost:${config.port}`));
 
 server.on('error', (error: NodeJS.ErrnoException) => {
